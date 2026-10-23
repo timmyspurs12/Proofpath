@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests requiring a running GenLayer network and credentials",
+]
+addopts = "-ra"
