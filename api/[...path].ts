@@ -24,9 +24,11 @@ export default async function handler(request: IncomingMessage, response: Server
     const app = await loadApplication();
     app(request, response);
   } catch (error: unknown) {
-    console.error('ProofPath API initialization failed', {
+    const diagnostic = {
       name: error instanceof Error ? error.name : 'UnknownError',
-    });
+      message: error instanceof Error ? error.message : 'Unknown initialization failure',
+    };
+    console.error('ProofPath API initialization failed', diagnostic);
     if (response.headersSent) {
       response.end();
       return;
@@ -40,6 +42,7 @@ export default async function handler(request: IncomingMessage, response: Server
           code: 'API_INITIALIZATION_FAILED',
           message: 'The API could not be initialized. Please retry or check the deployment logs.',
           retryable: true,
+          details: diagnostic,
         },
       }),
     );
