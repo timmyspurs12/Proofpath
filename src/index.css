@@ -7,21 +7,33 @@
 @import '@fontsource/newsreader/latin-500-italic.css';
 
 /* --------------------------------------------------------------------------
-   Quiet Intelligence: shared tokens and foundations
+   ProofPath brand identity: shared tokens and foundations
+   Palette: primary teal #0EA5A7, deep ink #0B0F17, warm ivory #FAF9F6,
+   neutral gray #6B7280. #0C7E80 is the AA-passing interaction teal for
+   text, links and solid controls on light surfaces.
    -------------------------------------------------------------------------- */
 :root {
-  --paper: #f6f4ef;
-  --paper-deep: #e9e7df;
-  --surface: #fffefa;
-  --surface-muted: #f0f2ee;
-  --ink: #172c35;
-  --ink-soft: #354850;
-  --muted: #5b696d;
-  --line: #dcded6;
-  --line-strong: #c3c9c2;
-  --teal: #106b66;
-  --teal-dark: #0a5350;
-  --teal-soft: #e3efea;
+  --brand-teal: #0ea5a7;
+  --brand-teal-deep: #0c7e80;
+  --brand-teal-darker: #0a5f61;
+  --brand-ink: #0b0f17;
+  --brand-ivory: #faf9f6;
+  --brand-gray: #6b7280;
+
+  --paper: #faf9f6;
+  --paper-deep: #efeee8;
+  --surface: #fffdf8;
+  --surface-muted: #f1f0eb;
+  --ink: #0b0f17;
+  --ink-soft: #2a313c;
+  /* Palette neutral is #6b7280 (--brand-gray); #5f6772 is its AA text derivative,
+     sized to clear 4.5:1 on every tinted surface for small body/label text. */
+  --muted: #5f6772;
+  --line: #e4e2db;
+  --line-strong: #c9c7bf;
+  --teal: #0c7e80;
+  --teal-dark: #0a5f61;
+  --teal-soft: #e2f2f2;
   --cobalt: #315f9e;
   --sage: #496c56;
   --sage-soft: #e7eee6;
@@ -29,8 +41,8 @@
   --amber-soft: #faf0de;
   --red: #90433d;
   --red-soft: #f8e9e5;
-  --focus: #2e63a5;
-  --brand-paper: #fffefa;
+  --focus: #0c7e80;
+  --brand-paper: #faf9f6;
   --content: 1280px;
   --radius-small: 6px;
   --radius-medium: 10px;
@@ -102,7 +114,7 @@ svg {
 }
 
 ::selection {
-  background: #c9dfd3;
+  background: #c7ecec;
   color: var(--ink);
 }
 
@@ -212,55 +224,78 @@ code {
   gap: 24px;
 }
 
+/* --------------------------------------------------------------------------
+   Brand lockup: continuous-path P symbol + two-tone DM Sans wordmark
+   -------------------------------------------------------------------------- */
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
-  color: var(--teal-dark);
+  gap: 12px;
   text-decoration: none;
 }
 
 .brand-mark {
-  width: 39px;
-  height: 39px;
+  width: 38px;
+  height: 38px;
+  color: var(--brand-teal);
+  transition: color 150ms ease;
 }
 
-.brand-lines,
-.brand-check {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.brand-lines {
-  stroke: var(--teal);
-  stroke-width: 1.8;
-}
-
-.brand-check {
-  stroke: var(--teal);
-  stroke-width: 2.6;
+.brand:hover .brand-mark {
+  color: var(--brand-teal-deep);
 }
 
 .brand-type {
   display: flex;
   flex-direction: column;
-  line-height: 1.05;
+  line-height: 1.1;
 }
 
-.brand-type strong {
-  color: var(--ink);
-  font-size: 18px;
+.brand-word {
+  font-size: 19px;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
-.brand-type span {
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 10px;
+.brand-word-proof {
+  color: var(--brand-ink);
+}
+
+.brand-word-path {
+  color: var(--brand-teal-deep);
+}
+
+.brand-tagline {
+  margin-top: 4px;
+  color: var(--brand-gray);
+  font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+/* Inverted lockup for deep-ink surfaces */
+.brand-dark .brand-mark,
+.brand-dark:hover .brand-mark {
+  color: var(--brand-teal);
+}
+
+.brand-dark .brand-word-proof {
+  color: var(--brand-ivory);
+}
+
+.brand-dark .brand-word-path {
+  color: var(--brand-teal);
+}
+
+.brand-dark .brand-tagline {
+  color: #9aa3af;
+}
+
+.brand-compact .brand-mark {
+  width: 34px;
+  height: 34px;
 }
 
 .main-nav,
@@ -332,7 +367,7 @@ code {
 }
 
 .nav-new:hover {
-  background: #27424b;
+  background: #1f2630;
 }
 
 .storage-notice {
@@ -685,6 +720,24 @@ code {
 
 .hero-copy {
   min-width: 0;
+}
+
+.hero-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.hero-brand-mark {
+  width: 46px;
+  height: 46px;
+}
+
+.hero-brand-word {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
 .hero-copy h1 {
@@ -1153,7 +1206,7 @@ code {
 
 .field textarea::placeholder,
 .field input::placeholder {
-  color: #687579;
+  color: var(--muted);
   opacity: 1;
 }
 
@@ -2905,8 +2958,8 @@ code {
 }
 
 .footer-inner .brand-mark {
-  width: 29px;
-  height: 29px;
+  width: 30px;
+  height: 30px;
 }
 
 .footer-inner p {
@@ -3098,15 +3151,15 @@ code {
   }
 
   .brand-mark {
-    width: 35px;
-    height: 35px;
+    width: 33px;
+    height: 33px;
   }
 
-  .brand-type strong {
+  .brand-word {
     font-size: 17px;
   }
 
-  .brand-type span {
+  .brand-tagline {
     display: none;
   }
 
@@ -3180,6 +3233,15 @@ code {
   .home-hero {
     gap: 40px;
     padding-block: 42px 56px;
+  }
+
+  .hero-brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .hero-brand-word {
+    font-size: 23px;
   }
 
   .hero-copy h1 {

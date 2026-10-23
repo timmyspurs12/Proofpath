@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="ProofPath symbol">
+  <g fill="none" stroke="#FAF9F6" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9.2 25.4 V10.8"/>
+  <path d="M9.2 8.6 H14.4 Q21.4 8.6 21.4 14 Q21.4 19.2 15.2 19.2 H9.2"/>
+  <path d="M18.2 9.3 L24.8 5.4"/>
+</g>
+  <path fill="#FAF9F6" d="M26.8 4.3 L22.1 4.9 L24.9 8.6 Z"/>
+</svg>

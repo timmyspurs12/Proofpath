@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ProofPath — Brand identity presentation</title>
+    <style>
+      @font-face {
+        font-family: 'DM Sans';
+        src: url('../../node_modules/@fontsource/dm-sans/files/dm-sans-latin-400-normal.woff2') format('woff2');
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: 'DM Sans';
+        src: url('../../node_modules/@fontsource/dm-sans/files/dm-sans-latin-500-normal.woff2') format('woff2');
+        font-weight: 500;
+      }
+      @font-face {
+        font-family: 'DM Sans';
+        src: url('../../node_modules/@fontsource/dm-sans/files/dm-sans-latin-700-normal.woff2') format('woff2');
+        font-weight: 700;
+      }
+      :root {
+        --teal: #0ea5a7;
+        --teal-deep: #0c7e80;
+        --ink: #0b0f17;
+        --ivory: #faf9f6;
+        --gray: #6b7280;
+        --gray-aa: #5f6772;
+        --line: #e4e2db;
+      }
+      * { box-sizing: border-box; }
+      img { max-width: 100%; height: auto; }
+      .panel img { max-width: 248px; }
+      body {
+        margin: 0;
+        background: #e9e7e0;
+        color: var(--ink);
+        font-family: 'DM Sans', 'Helvetica Neue', Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .deck { max-width: 1080px; margin: 0 auto; padding: 40px 28px 64px; }
+      .slide {
+        background: var(--ivory);
+        border-radius: 18px;
+        padding: 44px 48px;
+        margin-bottom: 26px;
+        box-shadow: 0 18px 50px rgba(11, 15, 23, 0.07);
+      }
+      .slide.dark { background: var(--ink); color: var(--ivory); }
+      .kicker {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.18em;
+        text-transform: uppercase; color: var(--teal-deep); margin: 0 0 10px;
+      }
+      .dark .kicker { color: var(--teal); }
+      h1 { font-size: 34px; letter-spacing: -0.03em; margin: 0 0 8px; }
+      h2 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 22px; }
+      p.lede { color: var(--gray-aa); font-size: 15px; line-height: 1.65; max-width: 720px; }
+      .dark p.lede { color: #b7bdc7; }
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+      .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+      .panel {
+        border: 1px solid var(--line); border-radius: 14px; padding: 26px;
+        display: flex; flex-direction: column; gap: 16px; min-height: 150px;
+      }
+      .dark .panel { border-color: rgba(250, 249, 246, 0.14); }
+      .panel-label { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gray); }
+      .dark .panel-label { color: #8f98a5; }
+      .panel img, .panel svg { align-self: flex-start; }
+      .lockup-ivory, .lockup-ink { width: 100%; border-radius: 12px; padding: 14px 18px; }
+      .lockup-ivory { background: var(--ivory); }
+      .lockup-ink { background: var(--ink); }
+      .lockup-ivory img, .lockup-ink img { width: 100%; max-width: 248px; height: auto; }
+      .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+      .swatch { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+      .swatch .chip { height: 118px; display: flex; align-items: flex-end; padding: 12px; }
+      .swatch .meta { padding: 14px 16px; background: var(--ivory); }
+      .swatch .name { font-weight: 700; font-size: 14px; }
+      .swatch .hex { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--gray-aa); margin-top: 3px; }
+      .swatch .use { font-size: 11.5px; color: var(--gray-aa); margin-top: 6px; line-height: 1.5; }
+      .icon-row { display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap; }
+      .icon-cell { text-align: center; font-size: 11.5px; color: var(--gray-aa); display: flex; flex-direction: column; gap: 9px; align-items: center; }
+      .icon-cell .box { display: grid; place-items: center; }
+      .fav-strip { display: flex; gap: 14px; align-items: center; }
+      .type-spec { display: grid; grid-template-columns: 160px 1fr; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+      .type-spec:last-child { border-bottom: 0; }
+      .type-spec .role { font-size: 12px; color: var(--gray); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+      .wordmark-typographic b { font-weight: 700; }
+      .teal-text { color: var(--teal-deep); }
+      .dark .teal-text { color: var(--teal); }
+      .concept { display: grid; grid-template-columns: 120px 1fr; gap: 26px; align-items: center; }
+      ul.rules { margin: 0; padding-left: 18px; color: var(--gray-aa); font-size: 14px; line-height: 1.8; }
+      .dark ul.rules { color: #b7bdc7; }
+      .clearspace { background: repeating-linear-gradient(45deg, #f1f0eb, #f1f0eb 8px, #eceae2 8px, #eceae2 16px); border-radius: 12px; padding: 30px; display: grid; place-items: center; }
+      .footer-note { text-align: center; color: var(--gray); font-size: 12px; padding-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <main class="deck">
+      <section class="slide">
+        <p class="kicker">Brand identity · 2026</p>
+        <h1>ProofPath</h1>
+        <p class="lede">
+          An identity built around evidence, clarity, direction and progress. A continuous path
+          draws the letter <b>P</b>, then rises into a forward arrowhead — verified information
+          becoming actionable.
+        </p>
+        <div style="margin-top: 30px">
+          <img src="../../public/brand/proofpath-logo-light.svg" alt="ProofPath primary horizontal logo" height="86" />
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">01 · The symbol</p>
+        <h2>A continuous path from evidence to action</h2>
+        <div class="concept">
+          <img src="../../public/brand/proofpath-symbol.svg" width="118" height="118" alt="ProofPath symbol" />
+          <p class="lede" style="margin: 0">
+            One unbroken monoline constructs the P: a grounded vertical stem and a structured bowl
+            that holds the evidence. The upper arc extends beyond the letterform and terminates in
+            an integral arrowhead — the moment a verified claim becomes a directed next step.
+            Round terminals keep it human; the 3.7-unit stroke keeps it legible at 16px.
+          </p>
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">02 · Lockups</p>
+        <h2>Primary, dark and monochrome</h2>
+        <div class="grid-3">
+          <div class="panel">
+            <span class="panel-label">Primary · light background</span>
+            <div class="lockup-ivory">
+              <img src="../../public/brand/proofpath-logo-light.svg" width="248" alt="Light lockup" />
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Dark background</span>
+            <div class="lockup-ink">
+              <img src="../../public/brand/proofpath-logo-dark.svg" width="248" alt="Dark lockup" />
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Monochrome</span>
+            <div class="lockup-ivory">
+              <img src="../../public/brand/proofpath-logo-mono.svg" width="248" alt="Monochrome lockup" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide dark">
+        <p class="kicker">03 · Symbol variants</p>
+        <h2>Standalone mark in every surface mode</h2>
+        <div class="grid-3">
+          <div class="panel">
+            <span class="panel-label">Teal · for ivory surfaces</span>
+            <img src="../../public/brand/proofpath-symbol.svg" width="86" height="86" alt="Teal symbol" />
+          </div>
+          <div class="panel">
+            <span class="panel-label">Ivory · for ink surfaces</span>
+            <img src="../../public/brand/proofpath-symbol-ivory.svg" width="86" height="86" alt="Ivory symbol" />
+          </div>
+          <div class="panel">
+            <span class="panel-label">Ink · monochrome</span>
+            <img src="../../public/brand/proofpath-symbol-ink.svg" width="86" height="86" alt="Ink symbol" />
+          </div>
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">04 · App icon &amp; favicon</p>
+        <h2>Recognizable from the browser tab to the home screen</h2>
+        <div class="grid-2">
+          <div class="panel">
+            <span class="panel-label">App icon (PWA / iOS / Android)</span>
+            <div class="icon-row">
+              <div class="icon-cell"><div class="box"><img src="../../public/brand/icon-192.png" width="72" height="72" alt="" /></div>192px</div>
+              <div class="icon-cell"><div class="box"><img src="../../public/brand/maskable-512.png" width="72" height="72" alt="" /></div>maskable</div>
+              <div class="icon-cell"><div class="box"><img src="../../public/brand/apple-touch-icon.png" width="72" height="72" alt="" /></div>apple-touch</div>
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Favicon · tab sizes</span>
+            <div class="fav-strip">
+              <div class="icon-cell"><img src="../../public/favicon.svg" width="16" height="16" alt="" />16</div>
+              <div class="icon-cell"><img src="../../public/favicon.svg" width="24" height="24" alt="" />24</div>
+              <div class="icon-cell"><img src="../../public/favicon.svg" width="32" height="32" alt="" />32</div>
+              <div class="icon-cell"><img src="../../public/brand/favicon-ink-tile.svg" width="32" height="32" alt="" />ink tile</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">05 · Palette</p>
+        <h2>Restrained, warm, trustworthy</h2>
+        <div class="swatches">
+          <div class="swatch">
+            <div class="chip" style="background: #0ea5a7"><span style="color: #fff; font-size: 11px; font-family: monospace">Aa 3.02:1</span></div>
+            <div class="meta"><div class="name">Primary teal</div><div class="hex">#0EA5A7</div><div class="use">Symbol, dark-surface accents, icon tiles</div></div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #0c7e80"><span style="color: #fff; font-size: 11px; font-family: monospace">Aa 4.87:1</span></div>
+            <div class="meta"><div class="name">Deep interaction teal</div><div class="hex">#0C7E80</div><div class="use">AA text, links, solid controls on light surfaces</div></div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #0b0f17"><span style="color: #faf9f6; font-size: 11px; font-family: monospace">Aa 18.2:1</span></div>
+            <div class="meta"><div class="name">Deep ink</div><div class="hex">#0B0F17</div><div class="use">Headlines, primary text, dark surfaces</div></div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #faf9f6; border-bottom: 1px solid var(--line)"><span style="color: #0b0f17; font-size: 11px; font-family: monospace">Aa 18.2:1</span></div>
+            <div class="meta"><div class="name">Warm ivory</div><div class="hex">#FAF9F6</div><div class="use">Page and surface background</div></div>
+          </div>
+        </div>
+        <div class="swatches" style="margin-top: 16px; grid-template-columns: repeat(4, 1fr)">
+          <div class="swatch" style="grid-column: span 1">
+            <div class="chip" style="background: #6b7280"><span style="color: #fff; font-size: 11px; font-family: monospace">Aa 4.59:1</span></div>
+            <div class="meta"><div class="name">Neutral gray</div><div class="hex">#6B7280</div><div class="use">Palette neutral; lockup tagline on ivory</div></div>
+          </div>
+          <div class="swatch" style="grid-column: span 1">
+            <div class="chip" style="background: #5f6772"><span style="color: #fff; font-size: 11px; font-family: monospace">Aa 5.02:1</span></div>
+            <div class="meta"><div class="name">AA text gray</div><div class="hex">#5F6772</div><div class="use">Small app text on tinted surfaces</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">06 · Wordmark typography</p>
+        <h2>DM Sans, weight contrast only</h2>
+        <div>
+          <div class="type-spec">
+            <span class="role">Wordmark</span>
+            <span class="wordmark-typographic" style="font-size: 30px; letter-spacing: -0.02em">
+              <b>Proof</b><b class="teal-text">Path</b>
+            </span>
+          </div>
+          <div class="type-spec">
+            <span class="role">Tagline</span>
+            <span style="font-size: 14px; letter-spacing: 0.14em; font-weight: 500; color: var(--gray)">
+              EVIDENCE TO ACTION
+            </span>
+          </div>
+          <div class="type-spec">
+            <span class="role">Family</span>
+            <span style="font-size: 15px">DM Sans 700 for the wordmark, DM Sans 500 tracked for the tagline.
+              Outlined vector paths in standalone SVG assets — no font dependency outside the app.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide">
+        <p class="kicker">07 · Clear space &amp; minimum size</p>
+        <h2>Protect the mark</h2>
+        <div class="grid-2">
+          <div class="clearspace">
+            <img src="../../public/brand/proofpath-symbol.svg" width="92" height="92" alt="" />
+          </div>
+          <div>
+            <ul class="rules">
+              <li>Minimum symbol size: 16px in UI, 12mm in print.</li>
+              <li>Clear space equals the symbol stem width × 2 on every side.</li>
+              <li>Do not rotate, recolor outside the palette, add gradients or drop shadows.</li>
+              <li>On photography, use the ink-tile or teal-tile favicon version, never the bare mark.</li>
+              <li>The compact navigation lockup is symbol-only; never crop the arrowhead.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <p class="footer-note">
+        ProofPath brand system · generated by scripts/brand/ · vector sources in public/brand/ ·
+        guidelines in docs/brand/BRAND.md
+      </p>
+    </main>
+  </body>
+</html>

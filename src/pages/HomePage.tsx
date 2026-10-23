@@ -25,6 +25,7 @@ import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { samplePlan } from '../data/sample-plan';
 import { Alert, Button, Skeleton } from '../components/ui';
 import { PlanPreview } from '../components/PlanPreview';
+import { BrandMark } from '../components/Logo';
 
 const initialForm: TaskInput = {
   task: '',
@@ -275,6 +276,13 @@ export function HomePage() {
     <div className="home-page">
       <section className="home-hero" aria-labelledby="home-title">
         <div className="hero-copy">
+          <div className="hero-brand">
+            <BrandMark className="brand-mark hero-brand-mark" />
+            <span className="hero-brand-word">
+              <span className="brand-word-proof">Proof</span>
+              <span className="brand-word-path">Path</span>
+            </span>
+          </div>
           <span className="eyebrow">
             <span className="eyebrow-line" /> Evidence-backed action plans
           </span>
