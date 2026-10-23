@@ -88,6 +88,31 @@ test('home and sample plan pass automated WCAG A/AA checks', async ({ page }) =>
   expect(plan.violations).toEqual([]);
 });
 
+test('API and direct SPA routes expose security headers without an auth redirect', async ({
+  request,
+}) => {
+  const health = await request.get('/api/health');
+  expect(health.status()).toBe(200);
+  expect(health.url()).not.toContain('/login');
+  expect((await health.json()).status).toBe('ok');
+  expect(health.headers()['cache-control']).toContain('no-store');
+  expect(health.headers()['x-content-type-options']).toBe('nosniff');
+  expect(health.headers()['x-frame-options']).toBe('DENY');
+  expect(health.headers()['referrer-policy']).toBe('no-referrer');
+
+  for (const path of ['/plans/not-in-workspace', '/saved', '/about']) {
+    const response = await request.get(path);
+    expect(response.status()).toBe(200);
+    expect(response.url()).not.toContain('/login');
+    expect(response.headers()['content-security-policy']).toContain("default-src 'self'");
+    expect(response.headers()['x-content-type-options']).toBe('nosniff');
+  }
+
+  const missing = await request.get('/api/not-a-route');
+  expect(missing.status()).toBe(404);
+  expect((await missing.json()).error.code).toBe('NOT_FOUND');
+});
+
 test('an unconfigured live request shows the real blocker instead of a simulated plan', async ({
   page,
   request,
