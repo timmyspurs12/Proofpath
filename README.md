@@ -33,8 +33,8 @@ ProofPath helps people inspect and complete administrative processes. It does no
 ### Windows PowerShell
 
 ```powershell
-git clone --branch arena/38ba6a7c-weatherpact --single-branch https://github.com/timmyspurs12/WeatherPact.git
-cd WeatherPact
+git clone --branch arena/03936fe6-proofpath --single-branch https://github.com/timmyspurs12/Proofpath.git
+cd Proofpath
 npm ci
 Copy-Item .env.example .env
 # Add NEBIUS_API_KEY to .env using a local editor. Never commit it.
@@ -46,8 +46,8 @@ Open `http://localhost:5173`. The browser uses relative `/api` URLs; Vite proxie
 ### macOS / Linux
 
 ```bash
-git clone --branch arena/38ba6a7c-weatherpact --single-branch https://github.com/timmyspurs12/WeatherPact.git
-cd WeatherPact
+git clone --branch arena/03936fe6-proofpath --single-branch https://github.com/timmyspurs12/Proofpath.git
+cd Proofpath
 npm ci
 cp .env.example .env
 # Add NEBIUS_API_KEY to .env using a local editor.

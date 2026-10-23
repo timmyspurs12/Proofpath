@@ -54,7 +54,7 @@ After pushing the desired submission branch to the public repository, create a d
 
 For a dashboard-created Git integration, select:
 
-1. Repository `timmyspurs12/WeatherPact` and the ProofPath submission ref.
+1. Repository `timmyspurs12/Proofpath` and the ProofPath submission ref.
 2. Vite framework, `npm ci`, `npm run build`, output `dist`.
 3. The environment variables above.
 4. Deploy, then run every check below before sharing the URL.

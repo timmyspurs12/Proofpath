@@ -71,7 +71,7 @@ React · TypeScript · Express · Vite · Zod · Cheerio · NVIDIA Nemotron 3 Na
 ## Submission links
 
 - **Working demo:** `https://proofpath-woad.vercel.app` — public static/sample deployment; genuine live workflow remains blocked.
-- **Source code:** `https://github.com/timmyspurs12/WeatherPact` — `[INSERT EXACT SUBMISSION REF/COMMIT]`
+- **Source code:** `https://github.com/timmyspurs12/Proofpath` — `[INSERT EXACT SUBMISSION REF/COMMIT]`
 - **Public YouTube video (<3:00):** `[INSERT ACTUAL PUBLIC URL — NOT RECORDED]`
 - **Runtime receipt:** `[INSERT REAL NEBIUS RESPONSE ID — BLOCKED]`
 - **Tavily bonus:** Do not claim unless a genuine runtime call is observed; none is claimed in this draft.

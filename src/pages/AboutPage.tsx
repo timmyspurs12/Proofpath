@@ -278,7 +278,7 @@ export function AboutPage() {
         </Alert>
         <a
           className="repository-link"
-          href="https://github.com/timmyspurs12/WeatherPact"
+          href="https://github.com/timmyspurs12/Proofpath"
           target="_blank"
           rel="noopener noreferrer"
         >
