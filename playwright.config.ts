@@ -8,7 +8,7 @@ export default defineConfig({
   workers: 1,
   timeout: 45_000,
   expect: { timeout: 8_000 },
-  reporter: 'list',
+  reporter: process.env.GITHUB_ACTIONS ? 'github' : 'list',
   use: {
     baseURL: externalBaseUrl ?? 'http://127.0.0.1:5173',
     headless: true,
