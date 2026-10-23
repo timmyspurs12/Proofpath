@@ -9,7 +9,8 @@ Browser: Chromium 153 via Playwright, headless, production build served by Expre
 | Check                    | Observed result                          | Scope / evidence                                                                                                |
 | ------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | TypeScript               | PASS                                     | `tsc --noEmit`; client, server, scripts, and tests                                                              |
-| Production build         | PASS                                     | `npm run build`; Vite production output generated                                                               |
+| Production build         | PASS                                     | `npm run build`; Vite production output and self-contained Vercel function generated                            |
+| Generated function smoke | PASS                                     | `npm run verify:serverless`; plain Node loaded the generated bundle and returned honest HTTP 200 health         |
 | Unit/API/component tests | **40/40 PASS**                           | Six Vitest files; deterministic fixtures, real Express routes with mocked provider boundary, jsdom localStorage |
 | Evaluation harness       | **12/12 PASS**                           | Actual executed cases; `docs/EVALUATION.md`, `docs/evaluation/cases.json`, `public/evaluation.json`             |
 | Browser workflow         | **6/6 PASS**                             | Real Chromium against production build; sample, edit/downgrade, persistence, export, mobile, provider blocker   |
@@ -27,6 +28,7 @@ Browser: Chromium 153 via Playwright, headless, production build served by Expre
 ```bash
 npm run typecheck
 npm run build
+npm run verify:serverless
 npm test -- --reporter=dot
 npm run evaluate
 npm audit --audit-level=moderate
@@ -70,6 +72,8 @@ The `LD_LIBRARY_PATH` and executable overrides are sandbox-specific. Normal loca
 - The first Chromium launch lacked NSS shared libraries; compatible package libraries were supplied and the same browser suite was rerun.
 - Axe found muted-text contrast failures; the palette was darkened and completed-card opacity removed.
 - Axe then found an unnamed progress bar; an accessible name was added. Both scans subsequently passed.
+- Real Vercel requests exposed missing server modules in both dynamic and statically traced TypeScript entries. The function is now explicitly bundled, and a generated-artifact smoke test runs in CI.
+- The first bundled ESM artifact failed locally on Express’s dynamic `tty` require; a Node `createRequire` banner fixed it, and the exact generated bundle then returned HTTP 200 health.
 
 ## Honest limits
 

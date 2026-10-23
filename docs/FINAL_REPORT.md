@@ -52,6 +52,7 @@ Real Chromium checks at 1440 px and 375 px passed; no horizontal mobile overflow
 Observed locally:
 
 - TypeScript and production build: PASS
+- Generated Vercel function plain-Node smoke test: PASS (honest HTTP 200 health)
 - Vitest: **40/40 PASS** across six files
 - Playwright: **6/6 PASS** against the production build
 - Evaluation: **12/12 PASS**

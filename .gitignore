@@ -1,6 +1,6 @@
 node_modules/
 dist/
-/api/*.js
+/server-dist/
 .vite/
 .env
 .env.*

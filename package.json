@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently -k -n API,WEB \"tsx watch server/dev.ts\" \"vite --host 0.0.0.0\"",
     "build": "tsc --noEmit && vite build && npm run build:serverless",
-    "build:serverless": "esbuild server/vercel-entry.ts --bundle --platform=node --target=node20 --format=esm --banner:js=\"import { createRequire as __proofpathCreateRequire } from 'node:module'; const require = __proofpathCreateRequire(import.meta.url);\" --outfile=\"api/[...path].js\"",
+    "build:serverless": "esbuild server/vercel-entry.ts --bundle --platform=node --target=node20 --format=esm --banner:js=\"import { createRequire as __proofpathCreateRequire } from 'node:module'; const require = __proofpathCreateRequire(import.meta.url);\" --outfile=\"server-dist/vercel-entry.mjs\"",
     "verify:serverless": "node scripts/verify-serverless.mjs",
     "start": "tsx server/production.ts",
     "preview": "vite preview --host 0.0.0.0",
@@ -18,8 +18,8 @@
     "screenshots": "tsx scripts/capture-screenshots.ts",
     "evaluate": "tsx scripts/evaluate.ts && prettier --write docs/EVALUATION.md docs/evaluation/cases.json public/evaluation.json",
     "verify:live": "tsx scripts/verify-live.ts",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

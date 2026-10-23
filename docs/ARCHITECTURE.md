@@ -11,7 +11,7 @@ Track: **Best Apps and Agents**.
 - **Client:** React 19, TypeScript, Vite, plain CSS, Lucide icons.
 - **Server:** small Express application written in TypeScript; native `fetch`, Zod validation, Cheerio for HTML-to-text.
 - **Local development:** Vite on port 5173 proxies relative `/api` requests to Express on port 3000. Both bind `0.0.0.0`; no browser code calls localhost.
-- **Deployment:** static Vite output plus the same Express handler as a Vercel catch-all function. `npm run build` explicitly bundles `server/vercel-entry.ts` and all server/shared dependencies into generated `api/[...path].js`; the bundle is ignored by Git and smoke-tested with plain Node. This avoids the missing-module and ESM dynamic-require failures observed in real deployments. `npm run start` also serves the production build from a single Node process for other hosts.
+- **Deployment:** static Vite output plus the same Express handler as a Vercel catch-all function. `npm run build` explicitly bundles `server/vercel-entry.ts` and all server/shared dependencies into ignored `server-dist/vercel-entry.mjs`; a tracked `api/[...path].ts` discovery wrapper and Vercel `includeFiles` rule package it. The exact bundle is smoke-tested with plain Node. This avoids the missing-module, undiscovered-function, and ESM dynamic-require failures observed in real deployments. `npm run start` also serves the production build from a single Node process for other hosts.
 - **Persistence:** explicit browser `localStorage` only. Plans and checkbox state survive local/browser restarts but are not synced across devices. There is no account or server-side plan store. Exports provide portability. No ephemeral server filesystem is used for saved plans.
 
 ## Runtime flow

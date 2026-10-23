@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import handler from '../api/[...path].js';
+import handler from '../server-dist/vercel-entry.mjs';
 
 const server = createServer(handler);
 server.listen(0, '127.0.0.1');
