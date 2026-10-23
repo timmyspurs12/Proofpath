@@ -10,7 +10,7 @@ Browser: Chromium 153 via Playwright, headless, production build served by Expre
 | ------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | TypeScript               | PASS                                     | `tsc --noEmit`; client, server, scripts, and tests                                                              |
 | Production build         | PASS                                     | `npm run build`; Vite production output generated                                                               |
-| Unit/API/component tests | **39/39 PASS**                           | Six Vitest files; deterministic fixtures, real Express routes with mocked provider boundary, jsdom localStorage |
+| Unit/API/component tests | **40/40 PASS**                           | Six Vitest files; deterministic fixtures, real Express routes with mocked provider boundary, jsdom localStorage |
 | Evaluation harness       | **12/12 PASS**                           | Actual executed cases; `docs/EVALUATION.md`, `docs/evaluation/cases.json`, `public/evaluation.json`             |
 | Browser workflow         | **6/6 PASS**                             | Real Chromium against production build; sample, edit/downgrade, persistence, export, mobile, provider blocker   |
 | Automated accessibility  | PASS for tested pages                    | axe WCAG 2 A/AA + WCAG 2.1 AA tags returned no violations on home and sample plan                               |

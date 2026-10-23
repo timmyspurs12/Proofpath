@@ -31,7 +31,7 @@ ProofPath helps people inspect and complete administrative processes. It does no
 ### Windows PowerShell
 
 ```powershell
-git clone https://github.com/timmyspurs12/WeatherPact.git
+git clone --branch arena/38ba6a7c-weatherpact --single-branch https://github.com/timmyspurs12/WeatherPact.git
 cd WeatherPact
 npm ci
 Copy-Item .env.example .env
@@ -44,7 +44,7 @@ Open `http://localhost:5173`. The browser uses relative `/api` URLs; Vite proxie
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/timmyspurs12/WeatherPact.git
+git clone --branch arena/38ba6a7c-weatherpact --single-branch https://github.com/timmyspurs12/WeatherPact.git
 cd WeatherPact
 npm ci
 cp .env.example .env
@@ -88,7 +88,8 @@ npm run dev             # Vite + Express with reload
 npm run typecheck       # TypeScript, no emit
 npm test                # deterministic unit/API/component tests
 npm run evaluate        # execute fixtures; write measured evaluation artifacts
-npm run build           # typecheck + production Vite build
+npm run build           # typecheck + client build + generated Vercel function bundle
+npm run verify:serverless # smoke-test the generated function with plain Node
 npm start               # serve dist and /api from one Node process
 
 npx playwright install chromium  # one-time browser install for local E2E
@@ -141,7 +142,7 @@ See [architecture and trust boundaries](docs/ARCHITECTURE.md), [deployment](docs
 
 ## Measured quality evidence
 
-At the documented local run: **39/39 unit/API/component tests**, **6/6 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero known vulnerabilities. Both home and sample-plan axe WCAG A/AA scans returned no violations. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment.
+At the documented local run: **40/40 unit/API/component tests**, **6/6 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero known vulnerabilities. Both home and sample-plan axe WCAG A/AA scans returned no violations. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment.
 
 The [evaluation report](docs/EVALUATION.md) defines citation coverage, unsupported-claim rejection, conflicts, missing information, workflow completion, provider failures, and fixture latency. It is intentionally adversarial and small; it is not a Nemotron accuracy benchmark.
 

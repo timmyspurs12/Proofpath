@@ -13,7 +13,7 @@
 Browser
   ├─ static Vite assets / client-side routes
   └─ relative /api/*
-          └─ api/[...path].ts → the same Express app
+          └─ generated api/[...path].js → the same Express app
                    ├─ Nebius Token Factory (server credential)
                    ├─ optional Tavily Search (server credential)
                    └─ explicit public-source retrieval
@@ -23,7 +23,7 @@ Browser
 - Install: `npm ci`
 - Build: `npm run build`
 - Output: `dist`
-- Function: `api/[...path].ts`, exported maximum duration 60 seconds
+- Function source: `server/vercel-entry.ts`; `npm run build` generates a self-contained `api/[...path].js` bundle with an exported maximum duration of 60 seconds. The generated file is ignored by Git. Run `npm run verify:serverless` after building to smoke-test the exact artifact.
 - Project Node version observed at creation: 24.x; repository supports Node 20.19+
 - Plan: Hobby observed on the connected team; no paid service is required for the static/sample deployment
 - Region: `iad1` observed in project settings; not a latency guarantee

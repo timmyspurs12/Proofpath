@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createApp } from '../server/app';
+import { createApp } from './app';
 
 export const maxDuration = 60;
 export const config = { api: { bodyParser: false } };

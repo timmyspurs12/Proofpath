@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
-import vercelHandler from '../api/[...path]';
+import vercelHandler from '../server/vercel-entry';
 import { createApp } from '../server/app';
 import { NebiusClient } from '../server/lib/nebius';
 import { TavilyClient } from '../server/lib/tavily';

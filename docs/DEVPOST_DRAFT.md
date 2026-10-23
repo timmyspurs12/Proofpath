@@ -48,7 +48,7 @@ The model cannot grant its own claims a supported label. Code checks each citati
 
 ## Accomplishments
 
-The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. In the documented local run, 39 unit/API/component tests, six Chromium E2E tests, and 12 evaluation cases passed; home and sample-plan axe scans returned no violations.
+The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. In the documented local run, 40 unit/API/component tests, six Chromium E2E tests, and 12 evaluation cases passed; home and sample-plan axe scans returned no violations.
 
 **Live Nebius/Tavily performance is not claimed without receipts.**
 

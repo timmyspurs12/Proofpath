@@ -6,7 +6,9 @@
   "description": "Evidence-to-action plans with deterministic source validation",
   "scripts": {
     "dev": "concurrently -k -n API,WEB \"tsx watch server/dev.ts\" \"vite --host 0.0.0.0\"",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run build:serverless",
+    "build:serverless": "esbuild server/vercel-entry.ts --bundle --platform=node --target=node20 --format=esm --banner:js=\"import { createRequire as __proofpathCreateRequire } from 'node:module'; const require = __proofpathCreateRequire(import.meta.url);\" --outfile=\"api/[...path].js\"",
+    "verify:serverless": "node scripts/verify-serverless.mjs",
     "start": "tsx server/production.ts",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
@@ -16,8 +18,8 @@
     "screenshots": "tsx scripts/capture-screenshots.ts",
     "evaluate": "tsx scripts/evaluate.ts && prettier --write docs/EVALUATION.md docs/evaluation/cases.json public/evaluation.json",
     "verify:live": "tsx scripts/verify-live.ts",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.ts\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.ts\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
@@ -43,6 +45,7 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.2.1",
+    "esbuild": "^0.25.12",
     "jsdom": "^26.1.0",
     "prettier": "^3.9.10",
     "tsx": "^4.20.6",

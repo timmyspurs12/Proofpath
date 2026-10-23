@@ -22,6 +22,7 @@ jobs:
       - run: npm test -- --reporter=dot
       - run: npm run evaluate
       - run: npm run build
+      - run: npm run verify:serverless
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: npm audit --audit-level=high

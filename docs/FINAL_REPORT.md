@@ -52,7 +52,7 @@ Real Chromium checks at 1440 px and 375 px passed; no horizontal mobile overflow
 Observed locally:
 
 - TypeScript and production build: PASS
-- Vitest: **39/39 PASS** across six files
+- Vitest: **40/40 PASS** across six files
 - Playwright: **6/6 PASS** against the production build
 - Evaluation: **12/12 PASS**
 - npm audit: **0 known vulnerabilities** at run time
