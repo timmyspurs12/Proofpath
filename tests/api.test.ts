@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
+import vercelHandler from '../api/[...path]';
 import { createApp } from '../server/app';
 import { NebiusClient } from '../server/lib/nebius';
 import { TavilyClient } from '../server/lib/tavily';
@@ -19,12 +20,24 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-async function serve(app: ReturnType<typeof createApp>) {
-  const server = app.listen(0, '127.0.0.1');
+async function listen(server: Server) {
   servers.push(server);
+  server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
   return `http://127.0.0.1:${address.port}`;
+}
+
+async function serve(app: ReturnType<typeof createApp>) {
+  return listen(createServer(app));
+}
+
+async function serveVercelEntry() {
+  return listen(
+    createServer((request, response) => {
+      void vercelHandler(request, response);
+    }),
+  );
 }
 
 function fixtureConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -75,6 +88,19 @@ describe('HTTP API', () => {
       status: 'ok',
       liveInferenceConfigured: false,
       tavilyConfigured: false,
+      liveInferenceVerified: false,
+    });
+  });
+
+  it('serves health through the Vercel catch-all entry point', async () => {
+    vi.stubEnv('NEBIUS_API_KEY', '');
+    vi.stubEnv('TAVILY_API_KEY', '');
+    const base = await serveVercelEntry();
+    const response = await fetch(`${base}/api/health`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: 'ok',
+      liveInferenceConfigured: false,
       liveInferenceVerified: false,
     });
   });
