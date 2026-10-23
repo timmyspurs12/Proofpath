@@ -1,0 +1,12 @@
+# Direct Mode tests do not start or require this localnet. These defaults keep
+# the official gltest fixture reproducible for optional future integration runs.
+networks:
+  default: localnet
+  localnet:
+    url: 'http://127.0.0.1:4000/api'
+  studionet: {}
+
+paths:
+  contracts: 'contracts'
+
+environment: .env
