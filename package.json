@@ -1,0 +1,59 @@
+{
+  "name": "proofpath",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-to-action plans with deterministic source validation",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB \"tsx watch server/dev.ts\" \"vite --host 0.0.0.0\"",
+    "build": "tsc --noEmit && vite build && npm run build:serverless",
+    "build:serverless": "esbuild server/vercel-entry.ts --bundle --platform=node --target=node20 --format=esm --banner:js=\"import { createRequire as __proofpathCreateRequire } from 'node:module'; const require = __proofpathCreateRequire(import.meta.url);\" --outfile=\"server-dist/vercel-entry.mjs\"",
+    "verify:serverless": "node scripts/verify-serverless.mjs",
+    "start": "tsx server/production.ts",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "screenshots": "tsx scripts/capture-screenshots.ts",
+    "evaluate": "tsx scripts/evaluate.ts && prettier --write docs/EVALUATION.md docs/evaluation/cases.json public/evaluation.json",
+    "verify:live": "tsx scripts/verify-live.ts",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/newsreader": "^5.3.0",
+    "cheerio": "^1.1.2",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.18.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.56.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.8",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.25.12",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.20.6",
+    "typescript": "~5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
