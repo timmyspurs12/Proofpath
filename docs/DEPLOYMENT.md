@@ -2,10 +2,12 @@
 
 ## Current observed state
 
-- **Vercel project:** `proofpath` was created as a separate project on 2026-10-23; the existing `weatherpact` project was not modified.
-- **Public deployment:** not yet deployed when this document was first written. This section must be updated only from a successful deployment result.
-- **Live inference:** no Nebius credential is available in the shell and the Vercel team has no shared Nebius/Tavily variables. No live runtime is claimed.
-- **Local production preview:** `npm start` serves the compiled app and API on `0.0.0.0:3000`; real Chromium checks passed against it.
+- **Vercel project:** `proofpath` / `prj_FWXStgEfzEnLGG1bMA11NdsFlQKa` was created as a separate project on 2026-10-23; the existing `weatherpact` project was not modified.
+- **Public deployment:** `https://proofpath-woad.vercel.app` is served by deployment `dpl_CMeB1qrXJmpCPTy67NRwE6DX8jVN`, observed **READY / PROMOTED** on 2026-10-23 with its production alias assigned. Its exact Git commit is `9ba1d58e6c4453621d08cf9a64cd5b958a03b9f3`; Vercel reported one Node.js Lambda in `iad1`.
+- **Independent hosted fetches:** the production origin returned the redesigned Home, direct About and missing-plan routes, and the regenerated **12/12** fixture evaluation. Unique-query health returned HTTP JSON with `status: "ok"`, the exact Nemotron Nano model ID, and both provider-configuration flags false.
+- **CI:** GitHub Actions run `40023411588` passed typecheck, **41/41** Vitest tests, **12/12** evaluation cases, build, generated-function smoke, **12/12** Chromium scenarios, and the high-severity dependency audit.
+- **Live inference:** no Nebius credential is available in the shell and the Vercel team has no shared Nebius/Tavily variables. Hosted health truthfully reports `liveInferenceConfigured: false`, `tavilyConfigured: false`, and `liveInferenceVerified: false`. No live runtime is claimed.
+- **Local production preview:** `npm start` serves the compiled app and API on `0.0.0.0:3000`; real Chromium checks passed against the current build on an isolated verification port.
 
 ## Vercel topology
 

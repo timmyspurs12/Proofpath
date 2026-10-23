@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: proofpath-public-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   public-smoke:
     runs-on: ubuntu-latest

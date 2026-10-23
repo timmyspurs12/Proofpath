@@ -21,6 +21,7 @@ Browser: Chromium 153 via Playwright, headless, redesigned production build serv
 | Live Nebius inference    | **BLOCKED / NOT RUN**     | No credential; no success claim                                                                                 |
 | Live Tavily discovery    | **BLOCKED / NOT RUN**     | No credential; no bonus claim                                                                                   |
 | Public Vercel deployment | See deployment report     | `docs/DEPLOYMENT.md` records the deployed commit and public verification separately from these local results    |
+| GitHub Actions CI        | PASS                      | Run `40023411588`: all install, typecheck, test, evaluation, build, serverless, browser, and audit steps passed |
 | Public YouTube video     | **NOT CREATED / BLOCKED** | No genuine live workflow to record and no YouTube publishing connection                                         |
 
 ## Commands executed
@@ -88,6 +89,8 @@ The `LD_LIBRARY_PATH` and executable overrides are sandbox-specific. Normal loca
 - The redesigned dialog’s opacity transition briefly reduced text contrast during an axe scan. Opacity animation was removed; the full browser suite then passed.
 - Task outlines initially retained prior source URLs. Switching examples now resets task-specific sources so unrelated evidence cannot be carried into a new outline.
 - The conflict component test initially matched a quotation both on its step and in the conflict panel; the assertion was scoped to the intended panel.
+- GitHub’s clean Vite development server exposed missing CSP headers on direct SPA routes. Development now sends the baseline security headers with explicit React-refresh/HMR exceptions; preview and production retain the strict deployed script policy. The complete CI browser suite then passed.
+- A newly published high-severity Zod constrained-collection advisory failed the audit after the browser gate. Zod was upgraded to 4.6.7; all schema-sensitive tests, evaluation, builds, both local browser paths, and the final CI audit passed with zero known vulnerabilities.
 
 ## Honest limits
 

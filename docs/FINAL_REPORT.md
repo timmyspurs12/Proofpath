@@ -58,6 +58,8 @@ Observed locally:
 - Evaluation: **12/12 PASS**
 - npm audit: **0 known vulnerabilities** at run time
 
+GitHub Actions run **40023411588** independently passed the full CI gate, including **12/12** Chromium scenarios and the dependency audit. A Vite-only CSP gap and a newly published Zod advisory were fixed before that green run; details remain in `docs/TEST_REPORT.md`.
+
 The evaluation artifact is generated from executed cases, not hard-coded success. It measures final citation coverage, raw supported-claim rejection, conflict detection, missing information, mocked-provider end-to-end completion, provider failures, and local fixture latency. See `docs/TEST_REPORT.md`, `docs/EVALUATION.md`, and `docs/evaluation/cases.json`. No live model-quality benchmark is claimed.
 
 ## H — Deployment and infrastructure
