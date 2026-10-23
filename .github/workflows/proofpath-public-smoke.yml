@@ -1,0 +1,43 @@
+name: ProofPath public smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Public ProofPath origin to test
+        required: false
+        default: https://proofpath-woad.vercel.app
+        type: string
+  push:
+    paths:
+      - .github/workflows/proofpath-public-smoke.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proofpath-public-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BASE_URL: ${{ inputs.base_url || 'https://proofpath-woad.vercel.app' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Preserve public-smoke failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-public-${{ github.run_id }}
+          path: test-results
+          retention-days: 3

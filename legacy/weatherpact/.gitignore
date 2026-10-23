@@ -1,0 +1,33 @@
+# Dependencies and builds
+node_modules/
+dist/
+.vite/
+
+# Python, GenVM, and local test tooling
+.venv/
+.bootstrap-venv/
+.python/
+.python-deps/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.genvm/
+artifacts/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and editor files
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/

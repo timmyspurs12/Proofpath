@@ -1,0 +1,54 @@
+name: Bradbury qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_rpc:
+        description: GenLayer node RPC to qualify (never a private key or URL credential)
+        required: true
+        default: https://rpc.testnet-chain.genlayer.com
+        type: string
+      chain_rpc:
+        description: Independent Bradbury chain RPC
+        required: true
+        default: https://rpc.testnet-chain.genlayer.com
+        type: string
+      contract_address:
+        description: Optional deployed WeatherPact address for post-deployment verification
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bradbury-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Inspect the pinned CLI and built-in Bradbury profile
+        run: |
+          ./node_modules/.bin/genlayer --version
+          ./node_modules/.bin/genlayer network set testnet-bradbury
+          ./node_modules/.bin/genlayer network info
+      - name: Run the unchanged read-only network and contract guard
+        env:
+          GENLAYER_NODE_RPC_URL: ${{ inputs.node_rpc }}
+          GENLAYER_CHAIN_RPC_URL: ${{ inputs.chain_rpc }}
+          WEATHERPACT_CONTRACT_ADDRESS: ${{ inputs.contract_address }}
+        run: |
+          args=()
+          if [ -n "$WEATHERPACT_CONTRACT_ADDRESS" ]; then
+            args+=(--require-contract)
+          fi
+          npm run verify:network -- "${args[@]}"
