@@ -1,232 +1,162 @@
-# WeatherPact
+# ProofPath — Evidence-to-Action Engine
 
-**Weather claims, settled with evidence.**
+**Track: Best Apps and Agents · Nebius Global AI Hackathon**
 
-WeatherPact is a responsive React + TypeScript DApp for public, measurable weather pacts. A creator chooses a place, local calendar date, daily weather metric, threshold, and YES/NO prediction. The Python Intelligent Contract is authoritative for pact creation, storage, resolution, activity, and non-financial creator reputation.
+ProofPath turns a concrete administrative task and official source passages into an ordered, editable checklist. NVIDIA Nemotron proposes the plan through Nebius Token Factory; deterministic code—not the model—decides whether a “supported” label has an exact passage behind it.
 
-The contract fetches Open-Meteo Historical Weather API evidence inside GenLayer's non-deterministic equivalence flow. Validators independently fetch and normalize the observation; no LLM can override the numerical comparison. There is no conventional API server, off-chain outcome database, payment, stake, payout, insurance, or token mechanism.
+![ProofPath sample action plan](docs/screenshots/02-plan-desktop.png)
 
-## Status: implemented locally, not deployed here
+> **Current verification status:** the application builds and its deterministic/browser tests pass in this workspace. No genuine Nebius or Tavily call has been observed because credentials are unavailable. The included sample is explicitly static and does **not** establish hackathon runtime compliance. Do not describe this repository as submission-ready until `npm run verify:live` and a real deployed workflow succeed.
 
-| Area                               | Current state                                                                                    |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Intelligent Contract               | Implemented in `contracts/weatherpact.py`; local Direct Mode, lint, schema, and type checks pass |
-| Real frontend adapter              | Implemented with `genlayer-js@2.0.0-rc.2`; strict TypeScript and production build pass           |
-| Local guard tests                  | 5 transaction-journal tests and 7 network-verification tests pass                                |
-| Live Bradbury qualification        | **Not completed**: this environment has no qualified GenLayer node RPC endpoint                  |
-| Contract deployment                | **Not performed**; no deployment address or transaction is claimed                               |
-| On-chain writes/weather resolution | **Not performed**; no measured WeatherPact fee profile or live consensus result is claimed       |
-| Default UI                         | Conspicuously labelled preview mode with genuine writes disabled                                 |
+## Why this is not another chatbot
 
-A configured contract and qualified node are required before the UI labels any record as on-chain. Environment variables alone never turn preview records into chain records.
+- **Action, not a summary:** ordered instructions, prerequisites, observable completion criteria, progress, editing, and export.
+- **Receipts, not confidence theater:** each supported step links to an exact source passage, publisher, URL, retrieval time, and content hash.
+- **Visible uncertainty:** supported, inferred/confirm, conflicting, and unable-to-verify remain different states.
+- **A model with a referee:** malformed output, invented quotes, unsupported dates, one-source “conflicts,” and dependency cycles are rejected or downgraded by code.
+- **Explicit rechecking:** sources are never silently monitored. A user-requested recheck compares availability and normalized content hashes.
 
-## Run locally
+## Product boundary
 
-Requirements: Node.js 20.19+ or 22.12+, npm, and—only for contract tests—Python 3.12+.
+ProofPath helps people inspect and complete administrative processes. It does not determine legal eligibility, provide legal advice, submit applications, book travel, synchronize government accounts, or guarantee that a source is current. It supports public HTML/plain-text URLs and `.txt`/`.md` uploads; PDF and image extraction are not implemented.
 
-```bash
+## Quick start
+
+### Prerequisite
+
+- Node.js **20.19+** (Node 22 LTS recommended)
+- A Nebius Token Factory credential for live inference; no local GPU or Docker
+- Optional Tavily credential for source discovery; direct source URLs work without it
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/timmyspurs12/WeatherPact.git
+cd WeatherPact
 npm ci
+Copy-Item .env.example .env
+# Add NEBIUS_API_KEY to .env using a local editor. Never commit it.
 npm run dev
 ```
 
-Vite listens on `0.0.0.0:5173`. The default configuration uses isolated illustrative preview data.
+Open `http://localhost:5173`. The browser uses relative `/api` URLs; Vite proxies them to the local Express server on port 3000.
+
+### macOS / Linux
 
 ```bash
-npm run test:client    # same-transaction journal and storage-denial recovery
-npm run test:network   # local JSON-RPC fixtures; no live network required
-npm run build          # strict TypeScript + static production bundle in dist/
-npm run preview        # serve that production build
-npm run format:check
-```
-
-The production build currently emits Vite's non-fatal large-chunk warning because the official GenLayer SDK is included. It is not suppressed or reported as a failure.
-
-## Architecture
-
-```text
-Injected wallet ──signs writes──┐
-                                ▼
-React static SPA ──genlayer-js──► Qualified GenLayer node RPC ──► Bradbury chain
-       │                              │                              │
-       │                              └──── read/finality/status ◄───┘
-       ▼
-WeatherPact Intelligent Contract ──fixed HTTPS request──► Open-Meteo archive
-```
-
-- `contracts/weatherpact.py` is the only authoritative record/outcome store.
-- `src/client/genlayer-client.ts` implements the same `WeatherPactClient` interface as the isolated preview adapter.
-- `src/client/index.ts` selects the real adapter only for a complete, valid Bradbury configuration; otherwise it selects preview mode.
-- `src/client/network.ts` stops reads/writes on network identity, contract code/schema, metadata, or `gen_call` qualification failures.
-- `src/client/transaction-journal.ts` stores only non-secret write intent and transaction IDs so an interrupted wait resumes the same transaction.
-- `scripts/verify-network.mjs` performs read-only deployment/runtime qualification.
-- `scripts/deploy.mjs` refuses to invoke the deployment CLI until that qualification succeeds.
-
-## Contract behavior
-
-### Creation and views
-
-`create_pact` uses `gl.message.sender_address`; callers cannot supply a creator, observed value, arbitrary evidence URL, or provider response. It validates:
-
-- bounded text and two-letter country code;
-- decimal latitude/longitude with at most six decimal places and physical ranges;
-- an ISO calendar date in the supported archive range;
-- an IANA timezone from the embedded TZ Database 2026b snapshot (599 canonical names and backward-compatible links), included because the pinned GenVM runner has no host tzdata;
-- one of the five supported metrics, an operator (`gt`, `gte`, `lt`, `lte`), YES/NO prediction, and a normalized metric threshold with at most three decimal places.
-
-The public schema has two writes and five views. `get_pacts` and `get_activity` return newest-first bounded pages of at most 50 records. `get_pact`, `get_reputation`, and `get_metadata` provide individual records and counters. The static client reads at most 20 pages/1,000 entries per collection and reports an error rather than silently truncating a larger history.
-
-### Metrics
-
-| Open-Meteo daily variable | Stored/displayed unit |
-| ------------------------- | --------------------- |
-| `rain_sum`                | mm                    |
-| `precipitation_sum`       | mm                    |
-| `temperature_2m_max`      | °C                    |
-| `temperature_2m_min`      | °C                    |
-| `wind_speed_10m_max`      | km/h                  |
-
-### Conservative resolution window
-
-A pact becomes eligible seven days after its target date at 00:00 UTC. This conservative delay is later than the end of the target local day in every supported UTC offset and allows for the archive's delayed/model-derived data. Chain time comes from the supported contract clock; Direct Mode tests use the official time-warp facility. Early resolution reverts without evidence.
-
-Eligibility does not guarantee that a provider response is usable. Timeout/request failure, HTTP 408/429/5xx, malformed or unexpected JSON, provider error responses, wrong units/timezone/date, missing or non-numeric data, out-of-range values, and excessive coordinate mismatch never resolve the pact. The pact remains open and a later resolution can be attempted. No separate `SOURCE_UNAVAILABLE` outcome is stored on-chain.
-
-### Independent numerical evidence
-
-Resolution constructs only an `https://archive-api.open-meteo.com/v1/archive` URL from validated pact fields. Leader and validators independently fetch that fixed request through `gl.nondet.web.get` and the documented `gl.vm.run_nondet` equivalence pattern. They compare canonical normalized success/failure values, excluding variable response fields such as generation time.
-
-A successful observation must have exactly one requested daily date, the expected unit and timezone, numeric evidence, valid provider coordinates/UTC offset, and coordinates within 0.25 degrees on each axis of the requested location (allowing normal model-grid snapping while rejecting a distant response). Values are normalized to three decimal places and compared as scaled integers. The contract stores `RESOLVED_YES` or `RESOLVED_NO` from the actual condition, independently of the creator's prediction, plus compact evidence and resolution metadata. Duplicate resolution is rejected.
-
-Reputation is derived from finalized creator history. Achievements in the UI are playful labels only—no points, tokens, payments, or financial rewards.
-
-> Historical weather data may be model-derived or reanalysis-based and is not necessarily a direct local weather-station measurement.
-
-Validator agreement on one fetched Open-Meteo response is **not** independent multi-provider weather verification. WeatherPact does not make that claim.
-
-## Contract setup and checks
-
-Use Python 3.12+; Direct Mode does not require Docker or a running localnet.
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-
-pytest tests/direct -q
-genvm-lint lint contracts/weatherpact.py
-GENVM_SOURCE_MODE=release GENVM_VERSION=v0.6.0-rc10 \
-  genvm-lint validate contracts/weatherpact.py
-GENVM_SOURCE_MODE=release GENVM_VERSION=v0.6.0-rc10 \
-  genvm-lint typecheck contracts/weatherpact.py
-```
-
-The requirements select the Phase 2/consensus-v0.6-compatible family and pin the inspected linter source commit. The current linter understands the runner's current schema API; older PyPI `genvm-linter 0.11.0` does not. If using an already-built GenVM tree instead of release acquisition, configure the official `GENVM_PREBUILT_DIR` supported by the installed tools. Do not substitute a host Python 3.11 shim or an unrelated runner.
-
-Latest local results:
-
-- **38/38 Direct Mode tests passed**, including actual sender, validation, early resolution, all metrics/operators, matching and non-matching outcomes, missing/malformed/failed sources, retries, coordinate mismatch, duplicate resolution, validators, bounded views, and multiple pacts.
-- **3/3 fast GenVM lint checks passed**.
-- **Schema validation passed: WeatherPact, 7 methods (5 view, 2 write)**.
-- **Pyright: no type errors**.
-- **5/5 journal tests and 7/7 network guard tests passed**.
-- **Strict TypeScript and Vite production build passed**.
-
-These are local tests, not a live deployment or production-runner deployment proof. Docker-based Studio/localnet integration was not run because Docker is unavailable in this environment.
-
-## Public environment configuration
-
-Copy the public example and fill it only when a real deployment and qualified public node exist:
-
-```bash
+git clone https://github.com/timmyspurs12/WeatherPact.git
+cd WeatherPact
+npm ci
 cp .env.example .env
+# Add NEBIUS_API_KEY to .env using a local editor.
+npm run dev
 ```
 
-| Variable                            | Purpose                                                             |
-| ----------------------------------- | ------------------------------------------------------------------- |
-| `VITE_WEATHERPACT_CONTRACT_ADDRESS` | Actual deployed Intelligent Contract address; empty means preview   |
-| `VITE_GENLAYER_CHAIN_ID`            | Must be `4221` for the real adapter                                 |
-| `VITE_GENLAYER_CHAIN_NAME`          | Public network label                                                |
-| `VITE_GENLAYER_RPC_URL`             | **Qualified GenLayer node RPC** supporting `gen_*` and browser CORS |
-| `VITE_GENLAYER_CHAIN_RPC_URL`       | Public chain RPC used for injected-wallet network configuration     |
-| `VITE_GENLAYER_EXPLORER_URL`        | Optional public explorer base URL                                   |
+**No credential?** You can still inspect the labelled sample, editing, completion, local saves, exports, and failure behavior. Real intake/plan requests return `LIVE_INFERENCE_UNAVAILABLE`; the app does not fabricate an offline success.
 
-`https://rpc.testnet-chain.genlayer.com` is the chain RPC, not a substitute for the GenLayer node RPC: the chain-only endpoint does not provide the required `gen_call`/contract methods. The browser node URL must be HTTPS and contain no credentials, query string, or fragment.
+## Try the central workflow
 
-Every `VITE_*` value is embedded in the public browser bundle. Never place private keys, seed phrases, signer secrets, privileged credentials, or credentialed RPC URLs in them. All `.env` and `.env.*` files except `.env.example` are ignored. Browser users sign with their own injected wallet.
+1. Choose **Fill a real UK passport task**. This supplies a real task and two GOV.UK URLs; it does not supply a fake result.
+2. Choose **Find my next steps**. Nebius performs intake, asks only essential clarifications, then the server retrieves sources and requests a structured plan.
+3. Open evidence passages and the source ledger. Review inferred steps and unresolved questions rather than treating every sentence as a requirement.
+4. Edit a factual instruction: its automatic supported status is withdrawn and becomes **Inferred — confirm**.
+5. Check steps, explicitly save to the browser, and reload. Export Markdown/JSON for portability.
+6. On a live plan, choose **Recheck sources now** to detect unavailable or changed text. Rechecking does not silently rewrite the plan.
 
-The deployment scripts also accept the non-Vite aliases `GENLAYER_NODE_RPC_URL`, `GENLAYER_CHAIN_RPC_URL`, and `WEATHERPACT_CONTRACT_ADDRESS`; they fall back to the corresponding public variables above.
+The separate **Explore a labelled sample** path uses hand-authored passages read from GOV.UK on 2026-10-23. It never claims a Nebius response.
 
-## Bradbury verification and deployment
+## Configuration
 
-Target identity is hard-coded and checked before deployment and before frontend reads/writes:
+All credentials are server-only. Never expose them with a `VITE_` prefix.
 
-- chain ID: **`4221`**;
-- genesis: **`0x17d89764d4f4f963158fc4c5e8f2cb670c2837740b35f37081c12860c3df97e4`**;
-- AddressManager: **`0x3F71AE080BD6270A91dBcc7960d88797828538E0`**.
+| Variable               | Required           | Default / purpose                                                                            |
+| ---------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
+| `NEBIUS_API_KEY`       | For live inference | Bearer credential; alias `NEBIUS_TOKEN_FACTORY_API_KEY` is also accepted                     |
+| `NEBIUS_BASE_URL`      | No                 | `https://api.tokenfactory.nebius.com/v1`; restricted to official HTTPS Token Factory hosts   |
+| `NEBIUS_MODEL`         | No                 | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`; must remain an `nvidia/` model ID                   |
+| `TAVILY_API_KEY`       | No                 | Enables basic Tavily discovery; generated answers are disabled and snippets are not evidence |
+| `API_PORT` / `PORT`    | No                 | Local Express port, default `3000`                                                           |
+| `RATE_LIMIT_WINDOW_MS` | No                 | Best-effort per-instance window, default `60000`                                             |
+| `RATE_LIMIT_MAX`       | No                 | Non-GET API requests per window/IP, default `20`                                             |
 
-The verifier checks both the node and chain RPC, deployed AddressManager code, the consensus contract's AddressManager pointer, source code/schema through `gen_*`, and—when a contract address is supplied—the deployed code/schema and an actual `get_metadata` read through `gen_call`.
+`.env` and all other environment files except `.env.example` are ignored. The client contains no credential handling.
 
-1. Obtain a qualified Phase 2 GenLayer node RPC from the official release/network instructions or operate a compatible node. Configure its public URL in `.env`; leave the contract address empty before deployment.
-2. Configure a signer using the official CLI's encrypted account flow, or choose browser signing. Keep all signing material outside Vite and outside Git.
+## Commands
 
-   ```bash
-   npx --no-install genlayer account create
-   ```
+```bash
+npm run dev             # Vite + Express with reload
+npm run typecheck       # TypeScript, no emit
+npm test                # deterministic unit/API/component tests
+npm run evaluate        # execute fixtures; write measured evaluation artifacts
+npm run build           # typecheck + production Vite build
+npm start               # serve dist and /api from one Node process
 
-3. Run the read-only guard. It makes no write and needs no funds.
+npx playwright install chromium  # one-time browser install for local E2E
+npm run test:e2e        # starts dev servers if needed; includes axe WCAG scans
+npm run screenshots     # captures from http://127.0.0.1:3000 by default
 
-   ```bash
-   npm run verify:network
-   ```
-
-4. Only after it passes, deploy with the pinned CLI. Use `--wallet browser` for browser signing, or omit it to use the CLI's configured encrypted account. Any approved fee-profile/CLI options can be appended; `--rpc` and `--contract` overrides are deliberately rejected by the guard.
-
-   ```bash
-   npm run deploy:contract -- --wallet browser
-   ```
-
-   The browser adapter estimates each exact write with `estimateTransactionFeesForWrite` and submits the SDK-returned fee options at current network prices. No measured WeatherPact fee-profile file is included or invented. Generate and validate a representative profile with the official Phase 2 fee tooling before relying on a static profile; live fee estimation and live writes remain unexecuted here.
-
-5. Set `VITE_WEATHERPACT_CONTRACT_ADDRESS` to the actual address returned by a successful deployment, then verify that exact deployment and build:
-
-   ```bash
-   npm run verify:network -- --require-contract
-   npm run build
-   ```
-
-Any identity mismatch, missing method, malformed response, unreachable endpoint, missing credentials/funds, or signing failure stops the flow. Do not bypass the guard. In this workspace the precise remaining blocker is the absence of a qualified GenLayer node RPC; therefore no deployment or on-chain write was attempted.
-
-## Transaction safety and UI behavior
-
-- Injected-wallet writes require the connected account and chain `4221`; wallet switching can request the documented chain configuration.
-- A GenLayer consensus transaction ID—not merely an EVM envelope hash—is persisted as soon as the SDK returns it.
-- Tracking uses `waitForFinalization`, followed by the SDK `isSuccessful` check. Accepted/finalized alone is not presented as successful execution.
-- A tracking interruption keeps the UI in a resumable state and offers **Resume same transaction**. It does not blindly submit another write.
-- Durable reads use `TransactionHashVariant.LATEST_FINAL`. Real records receive no invented transaction hashes; creation/resolution hashes are shown only when present in this browser's journal.
-- A newly created pact ID is linked only when one unambiguous matching finalized record is found. Otherwise the successful transaction remains visible without guessing a record.
-- Preview records are isolated, labelled, excluded from real statistics/reputation, and cannot earn achievements or enable genuine writes.
-
-## Static deployment
-
-`dist/` is a static Vite SPA. Configure all application routes to rewrite to `index.html`.
-
-- `vercel.json` contains the Vercel SPA rewrite.
-- `public/_redirects` supports hosts using that convention.
-
-No backend is required. A production deployment must permit browser access to the qualified GenLayer node and `https://geocoding-api.open-meteo.com` for city search. Manual coordinates/timezone remain available.
-
-## Project map
-
-```text
-contracts/weatherpact.py          Authoritative Python Intelligent Contract
-scripts/verify-network.mjs       Read-only Bradbury + GenVM qualification
-scripts/deploy.mjs               Guarded pinned-CLI deployment
-src/client/                      Real/preview adapters, network guard, tx journal
-src/components/                  Accessible shell, evidence, forms, UI primitives
-src/context/                     Contract-data and injected-wallet boundaries
-src/data/preview-data.ts         Isolated illustrative-only records
-src/pages/                       Existing seven-route product UI
-tests/direct/                    Official GenLayer Direct Mode tests
-tests/network/                   Local JSON-RPC qualification tests
-tests/client/                    Transaction-journal recovery tests
+npm run verify:live     # OPT-IN: makes genuine Nebius calls; requires a credential
+npm audit               # dependency advisory check
 ```
+
+`PLAYWRIGHT_BASE_URL` can target an existing server. `CHROMIUM_EXECUTABLE_PATH` can select an existing Chromium binary. Run `npm run evaluate` before `npm run build` so the current measured artifact is included in `public/evaluation.json` and the About page.
+
+## Evidence semantics
+
+| State                    | What code establishes                                                            | What it does **not** establish                                                                                |
+| ------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Supported by source**  | At least one normalized exact contiguous citation exists in the retrieved source | Semantic correctness, authority, freshness, eligibility, or that every part of a long instruction is entailed |
+| **Inferred — confirm**   | Practical suggestion, custom/user-edited content, or withdrawn automatic support | That a source imposes the action                                                                              |
+| **Conflicting evidence** | A model-flagged conflict has valid passages from at least two sources            | Which source should win; the conflict interpretation still needs review                                       |
+| **Unable to verify**     | No valid supporting passage survives                                             | That the statement is false—only that this plan cannot support it                                             |
+
+A date remains only when a validated citation contains the date text. User edits to a title, instruction, or date withdraw automatic supported status. Conflict labels and conflict entries are linked, but the model’s interpretation is not treated as a deterministic fact.
+
+## Architecture and API
+
+- **Client:** React 19, TypeScript, Vite, plain responsive CSS, Lucide icons, self-hosted fonts.
+- **Server:** Express 5 + TypeScript, native bounded `fetch`, Cheerio extraction, Zod.
+- **AI:** Nebius Token Factory chat completions with JSON Schema requested and Zod enforced.
+- **Discovery:** direct/uploaded sources plus optional Tavily basic search; retrieved publisher text is the evidence.
+- **Persistence:** up to 20 explicitly saved plans in this browser’s `localStorage`; no account, server plan database, cross-device sync, or ephemeral-filesystem dependency.
+- **Deployment:** Vite static output plus an Express catch-all Vercel function; `npm start` supports a single-process Node host.
+
+| Route                      | Purpose                                                              |
+| -------------------------- | -------------------------------------------------------------------- |
+| `GET /api/health`          | Reports configuration, never claims a verified live call             |
+| `POST /api/intake`         | Real Nebius goal/clarification inference                             |
+| `POST /api/plans`          | Retrieval + real Nebius plan inference + deterministic evidence gate |
+| `POST /api/sources/verify` | Explicit source availability/hash recheck; no model call             |
+
+See [architecture and trust boundaries](docs/ARCHITECTURE.md), [deployment](docs/DEPLOYMENT.md), and [infrastructure notes](docs/ARCHITECTURE.md#provider-controls).
+
+## Privacy and security
+
+- Do not submit identity numbers, passwords, payment details, confidential notices, or medical records.
+- Live task details and uploaded text are sent to Nebius. Tavily receives discovery queries only when configured. Saved plans stay in the browser unless exported.
+- Token Factory data-retention behavior is governed by the operator’s account settings; `store: false` is not presented as a Zero Data Retention guarantee.
+- Source retrieval enforces HTTP(S)-only URLs, public-address checks on every redirect, an 8-second timeout, 750 KB response cap, supported content types, six-source/30 KB-per-source limits, and bounded extraction. DNS checks reduce SSRF risk but are not a guarantee against every DNS-rebinding technique.
+- Provider credentials never enter browser bundles or logs. Logs record operational metadata, not task/source content.
+- Browser saves are not encrypted. Export important plans and avoid relying on shared-device storage.
+
+## Measured quality evidence
+
+At the documented local run: **39/39 unit/API/component tests**, **6/6 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero known vulnerabilities. Both home and sample-plan axe WCAG A/AA scans returned no violations. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment.
+
+The [evaluation report](docs/EVALUATION.md) defines citation coverage, unsupported-claim rejection, conflicts, missing information, workflow completion, provider failures, and fixture latency. It is intentionally adversarial and small; it is not a Nemotron accuracy benchmark.
+
+## Documentation and submission artifacts
+
+- [Official requirements and access check](docs/research/OFFICIAL_REQUIREMENTS.md)
+- [Nine-concept weighted scorecard](docs/research/IDEA_SCORECARD.md)
+- [Selection ADR](docs/decisions/0001-select-proofpath.md)
+- [Evaluation methods/results](docs/EVALUATION.md) · [case ledger](docs/evaluation/cases.json)
+- [Test report](docs/TEST_REPORT.md) · [compliance matrix](docs/COMPLIANCE.md)
+- [2:45 demo script/storyboard](docs/DEMO_SCRIPT.md) · [screenshots](docs/screenshots/README.md)
+- [Devpost draft](docs/DEVPOST_DRAFT.md) · [final A–J handoff](docs/FINAL_REPORT.md)
+
+## Repository note and license
+
+ProofPath is a new application built in the existing WeatherPact repository. The unrelated 64-file WeatherPact source is preserved under `legacy/weatherpact/` and at commit `cde3ec2e2637accaf8db1656237721820ef1b564`; it is not a ProofPath feature or hackathon runtime.
+
+Released under the [MIT License](LICENSE). NVIDIA model weights remain subject to their own model license; this repository’s MIT license does not relicense them.

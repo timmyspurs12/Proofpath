@@ -1,13 +1,1 @@
 /// <reference types="vite/client" />
-
-interface ImportMetaEnv {
-  readonly VITE_WEATHERPACT_CONTRACT_ADDRESS?: string;
-  readonly VITE_GENLAYER_CHAIN_ID?: string;
-  readonly VITE_GENLAYER_CHAIN_NAME?: string;
-  readonly VITE_GENLAYER_RPC_URL?: string;
-  readonly VITE_GENLAYER_EXPLORER_URL?: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
