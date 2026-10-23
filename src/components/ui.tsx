@@ -1,4 +1,11 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import {
   AlertCircle,
   Check,
@@ -6,7 +13,9 @@ import {
   CircleHelp,
   Lightbulb,
   LoaderCircle,
+  Trash2,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import type { EvidenceStatus } from '../shared/schemas';
 import { classNames, evidenceLabels } from '../lib/utils';
@@ -59,7 +68,7 @@ export function Alert({
       role={tone === 'error' ? 'alert' : 'status'}
       {...props}
     >
-      <Icon size={19} aria-hidden="true" />
+      <Icon size={18} aria-hidden="true" />
       <div>
         {title && <strong className="alert-title">{title}</strong>}
         <div className="alert-content">{children}</div>
@@ -116,13 +125,80 @@ export function EmptyState({
   );
 }
 
+export function ConfirmDialog({
+  open,
+  title,
+  children,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  children: ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    } else if (!open && dialog.open) {
+      if (typeof dialog.close === 'function') dialog.close();
+      else dialog.removeAttribute('open');
+    }
+  }, [open]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="confirm-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+      onClick={(event) => {
+        if (event.target === dialogRef.current) onCancel();
+      }}
+    >
+      <div className="dialog-panel">
+        <div className="dialog-icon" aria-hidden="true">
+          <Trash2 size={20} />
+        </div>
+        <div className="dialog-copy">
+          <span className="step-kicker">PLEASE CONFIRM</span>
+          <h2 id={titleId}>{title}</h2>
+          <div id={descriptionId}>{children}</div>
+        </div>
+        <div className="dialog-actions">
+          <Button type="button" variant="secondary" onClick={onCancel} autoFocus>
+            Cancel
+          </Button>
+          <Button type="button" variant="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export function Toast({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
     <div className="toast" role="status">
       <Check size={17} aria-hidden="true" />
       <span>{children}</span>
       <button type="button" onClick={onClose} aria-label="Dismiss notification">
-        ×
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );

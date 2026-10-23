@@ -1,28 +1,61 @@
+import { useState } from 'react';
 import { ArrowRight, FileClock, FolderOpen, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { formatDate, planProgress } from '../lib/utils';
-import { Button, EmptyState } from '../components/ui';
+import type { Plan } from '../shared/schemas';
+import { Button, ConfirmDialog, EmptyState } from '../components/ui';
+
+type Confirmation = { type: 'delete'; plan: Plan } | { type: 'clear' } | null;
 
 export function SavedPage() {
   const { plans, openPlan, deletePlan, clearPlans } = usePlanLibrary();
+  const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const navigate = useNavigate();
 
   return (
     <div className="saved-page page-stack">
+      <ConfirmDialog
+        open={confirmation !== null}
+        title={
+          confirmation?.type === 'clear' ? 'Clear your saved library?' : 'Delete this saved plan?'
+        }
+        confirmLabel={confirmation?.type === 'clear' ? 'Clear library' : 'Delete plan'}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          if (confirmation?.type === 'clear') clearPlans();
+          if (confirmation?.type === 'delete') deletePlan(confirmation.plan.id);
+          setConfirmation(null);
+        }}
+      >
+        {confirmation?.type === 'clear' ? (
+          <p>
+            Delete all {plans.length} saved {plans.length === 1 ? 'plan' : 'plans'} from this
+            browser? Export anything you need first. This cannot be undone.
+          </p>
+        ) : (
+          <p>
+            Delete “{confirmation?.plan.title}” from this browser? Exported copies will not be
+            affected.
+          </p>
+        )}
+      </ConfirmDialog>
+
       <div className="page-heading split-heading">
         <div>
-          <span className="eyebrow">Your browser library</span>
+          <span className="eyebrow">
+            <span className="eyebrow-line" /> Your browser library
+          </span>
           <h1>Saved plans</h1>
           <p>Stored only on this device. No account, sync, or server-side copy.</p>
         </div>
         <Link to="/" className="button button-primary button-medium">
-          Create a plan <ArrowRight size={16} />
+          Create a plan <ArrowRight size={16} aria-hidden="true" />
         </Link>
       </div>
       {plans.length === 0 ? (
         <EmptyState
-          icon={<FolderOpen size={30} />}
+          icon={<FolderOpen size={28} />}
           title="No saved paths yet"
           action={
             <Link to="/" className="button button-secondary button-medium">
@@ -41,18 +74,7 @@ export function SavedPage() {
             <span>
               {plans.length} {plans.length === 1 ? 'plan' : 'plans'} saved locally
             </span>
-            <Button
-              variant="ghost"
-              size="small"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Delete every saved plan from this browser? This cannot be undone.',
-                  )
-                )
-                  clearPlans();
-              }}
-            >
+            <Button variant="ghost" size="small" onClick={() => setConfirmation({ type: 'clear' })}>
               Clear library
             </Button>
           </div>
@@ -66,14 +88,14 @@ export function SavedPage() {
                     type="button"
                     onClick={() => {
                       openPlan(plan);
-                      navigate('/plans/current');
+                      navigate(`/plans/${plan.id}`);
                     }}
                   >
                     <div className="saved-card-meta">
                       <span className={`mode-dot mode-${plan.runtime.mode}`}>
-                        {plan.runtime.mode === 'live' ? 'Live inference' : 'Sample'}
+                        {plan.runtime.mode === 'live' ? 'Live inference' : 'Labelled sample'}
                       </span>
-                      <span>{formatDate(plan.updatedAt)}</span>
+                      <span>Updated {formatDate(plan.updatedAt)}</span>
                     </div>
                     <h2>{plan.title}</h2>
                     <p>{plan.goal}</p>
@@ -87,25 +109,25 @@ export function SavedPage() {
                     <div className="progress-track" aria-label={`${progress.percent}% complete`}>
                       <span style={{ width: `${progress.percent}%` }} />
                     </div>
+                    <span className="saved-open-cue">
+                      Open plan <ArrowRight size={14} aria-hidden="true" />
+                    </span>
                   </button>
                   <button
                     className="icon-button saved-delete"
                     type="button"
                     aria-label={`Delete ${plan.title}`}
-                    onClick={() => {
-                      if (window.confirm(`Delete “${plan.title}” from this browser?`))
-                        deletePlan(plan.id);
-                    }}
+                    onClick={() => setConfirmation({ type: 'delete', plan })}
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={16} aria-hidden="true" />
                   </button>
                 </article>
               );
             })}
           </div>
           <p className="privacy-footnote">
-            <FileClock size={15} /> Export important plans for backup. Browser data can be cleared
-            by your browser or device.
+            <FileClock size={16} aria-hidden="true" /> Export important plans for backup. Browser
+            data can be cleared by your browser or device.
           </p>
         </>
       )}

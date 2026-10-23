@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ranAt": "2026-10-23T19:42:43.907Z",
+  "ranAt": "2026-10-23T20:33:53.065Z",
   "mode": "deterministic-fixtures",
   "liveModel": false,
   "model": null,
@@ -23,7 +23,7 @@
     "endToEndCases": 1,
     "providerFailuresHandled": 3,
     "providerFailureCases": 3,
-    "medianFixtureLatencyMs": 0.46
+    "medianFixtureLatencyMs": 0.59
   },
   "definitions": {
     "citationCoverage": "Final source-supported steps divided by all steps in the eight evidence fixtures.",

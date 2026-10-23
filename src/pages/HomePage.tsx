@@ -6,10 +6,8 @@ import {
   FileText,
   Link2,
   LockKeyhole,
-  Quote,
   RotateCcw,
   ShieldCheck,
-  Sparkles,
   Upload,
   X,
 } from 'lucide-react';
@@ -26,6 +24,7 @@ import { apiFetch, ApiError } from '../lib/api';
 import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { samplePlan } from '../data/sample-plan';
 import { Alert, Button, Skeleton } from '../components/ui';
+import { PlanPreview } from '../components/PlanPreview';
 
 const initialForm: TaskInput = {
   task: '',
@@ -236,7 +235,35 @@ export function HomePage() {
     setIntake(null);
     setStage('edit');
     setError(null);
-    document.getElementById('task-builder')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document
+      .getElementById('task-builder')
+      ?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  function fillTaskOutline(outline: 'scholarship' | 'utility') {
+    const fields =
+      outline === 'scholarship'
+        ? {
+            task: 'Prepare the documents for a scholarship application.',
+            jurisdiction: 'Nigeria',
+            category: 'Education & funding',
+            details:
+              'I need an ordered document checklist and submission plan. I will provide the official scholarship instructions or prospectus below.',
+          }
+        : {
+            task: 'Review an electricity bill and dispute an incorrect charge.',
+            jurisdiction: 'Nigeria',
+            category: 'Utilities & bills',
+            details:
+              'I want to understand the charges and follow the provider’s official complaint process. I will add the bill or provider guidance as a source.',
+          };
+    setForm({ ...initialForm, ...fields });
+    setSourceText('');
+    setIntake(null);
+    setStage('edit');
+    setError(null);
+    document.getElementById('task')?.focus();
   }
 
   function openSample() {
@@ -246,56 +273,41 @@ export function HomePage() {
 
   return (
     <div className="home-page">
-      <section className="home-hero">
+      <section className="home-hero" aria-labelledby="home-title">
         <div className="hero-copy">
           <span className="eyebrow">
-            <span className="eyebrow-line" /> Evidence-to-action engine
+            <span className="eyebrow-line" /> Evidence-backed action plans
           </span>
-          <h1>
-            Confusing instructions.
-            <br />
-            <em>A clear way forward.</em>
+          <h1 id="home-title">
+            Know what to do next.
+            <em>See why.</em>
           </h1>
           <p className="hero-lede">
-            Turn official pages and dense documents into an ordered checklist where every important
-            step shows its evidence—and every gap stays visible.
+            Turn official pages and dense documents into an ordered checklist. Inspect the passage
+            behind each important step, keep uncertainties visible, and decide what to do next.
           </p>
           <div className="hero-actions">
             <a href="#task-builder" className="button button-primary button-large">
-              Build my action plan <ArrowRight size={18} />
+              Build my action plan <ArrowRight size={18} aria-hidden="true" />
             </a>
-            <Button variant="ghost" size="large" onClick={openSample}>
+            <Button variant="secondary" size="large" onClick={openSample}>
               Explore a labelled sample
             </Button>
           </div>
-          <span className="sample-caption">
-            Sample: 2 real GOV.UK sources · 6 steps · no AI call
-          </span>
+          <span className="sample-caption">Sample: 2 real GOV.UK pages · 6 steps · no AI call</span>
+          <ul className="hero-assurances" aria-label="ProofPath principles">
+            <li>
+              <FileText size={15} aria-hidden="true" /> Exact source passages
+            </li>
+            <li>
+              <ShieldCheck size={15} aria-hidden="true" /> Visible uncertainty
+            </li>
+            <li>
+              <LockKeyhole size={15} aria-hidden="true" /> Explicit local saves
+            </li>
+          </ul>
         </div>
-        <aside className="hero-proof" aria-label="Evidence example">
-          <div className="proof-topline">
-            <span>THE PROOFPATH STANDARD</span>
-            <ShieldCheck size={19} />
-          </div>
-          <div className="proof-step">
-            <span className="proof-number">04</span>
-            <div>
-              <strong>Apply online and review the fee</strong>
-              <span className="mini-status">
-                <CheckCircle2 size={13} /> Supported by source
-              </span>
-            </div>
-          </div>
-          <blockquote>
-            <Quote size={18} aria-hidden="true" />
-            <p>“It costs £102 to renew or replace your passport if you apply online…”</p>
-          </blockquote>
-          <div className="proof-source">
-            <span>HM Passport Office</span>
-            <span>GOV.UK ↗</span>
-          </div>
-          <p className="proof-principle">No passage? No “supported” label.</p>
-        </aside>
+        <PlanPreview onOpen={openSample} />
       </section>
 
       <section id="task-builder" className="builder-section" aria-labelledby="builder-title">
@@ -303,6 +315,7 @@ export function HomePage() {
           <div>
             <span className="step-kicker">01 / DEFINE THE TASK</span>
             <h2 id="builder-title">What do you need to get done?</h2>
+            <p>Start with the outcome. Add context and evidence only where they matter.</p>
           </div>
           <button type="button" className="text-button" onClick={fillLiveExample}>
             <RotateCcw size={14} /> Fill a real UK passport task
@@ -356,7 +369,7 @@ export function HomePage() {
         {busy ? (
           <div className="generation-state" aria-live="polite" aria-busy="true">
             <div className="generation-orbit">
-              <Sparkles size={25} />
+              <FileText size={25} aria-hidden="true" />
             </div>
             <span className="step-kicker">
               {busy === 'intake' ? 'UNDERSTANDING YOUR GOAL' : 'BUILDING WITH RECEIPTS'}
@@ -368,18 +381,18 @@ export function HomePage() {
             </h2>
             <p>
               {busy === 'intake'
-                ? 'Nemotron is checking what must be clarified before sources are selected.'
-                : 'Sources are retrieved, Nemotron drafts the steps, then code checks every cited passage. This can take up to a minute.'}
+                ? 'The server is checking what must be clarified before sources are selected.'
+                : 'The server retrieves sources, requests a draft plan, then checks every cited passage. This can take up to a minute.'}
             </p>
-            <div className="generation-steps">
-              <span className="done">
-                <CheckCircle2 size={15} /> Task scoped
-              </span>
-              <span className={busy === 'plan' ? 'done' : ''}>
-                <Link2 size={15} /> Sources prepared
+            <div className="generation-steps" aria-label="Plan generation process">
+              <span>
+                <CheckCircle2 size={15} aria-hidden="true" /> Scope the task
               </span>
               <span>
-                <ShieldCheck size={15} /> Evidence validated
+                <Link2 size={15} aria-hidden="true" /> Retrieve and draft
+              </span>
+              <span>
+                <ShieldCheck size={15} aria-hidden="true" /> Check citations
               </span>
             </div>
             <div className="generation-skeleton">
@@ -431,6 +444,20 @@ export function HomePage() {
           </form>
         ) : (
           <form className="task-form" onSubmit={submitTask}>
+            <div className="task-examples">
+              <div>
+                <span>Need a starting point?</span>
+                <p>Prefill an outline, then add the instructions that apply to you.</p>
+              </div>
+              <div className="task-example-links">
+                <button type="button" onClick={() => fillTaskOutline('scholarship')}>
+                  Scholarship documents <ArrowRight size={14} aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => fillTaskOutline('utility')}>
+                  Utility bill review <ArrowRight size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
             <div className="field field-task">
               <label htmlFor="task">Your task</label>
               <textarea

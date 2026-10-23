@@ -1,4 +1,4 @@
-import { BookOpen, Folder, Plus } from 'lucide-react';
+import { BookOpen, Folder, LayoutList, Plus } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { Logo } from './Logo';
@@ -16,22 +16,34 @@ export function AppShell() {
           <Logo />
           <nav className="main-nav" aria-label="Main navigation">
             <NavLink
+              to="/"
+              end
+              className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+            >
+              <LayoutList size={17} aria-hidden="true" />
+              <span>Workspace</span>
+            </NavLink>
+            <NavLink
               to="/saved"
               className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
             >
-              <Folder size={16} aria-hidden="true" />
+              <Folder size={17} aria-hidden="true" />
               <span>Saved plans</span>
-              {plans.length > 0 && <span className="nav-count">{plans.length}</span>}
+              {plans.length > 0 && (
+                <span className="nav-count" aria-label={`${plans.length} saved`}>
+                  {plans.length}
+                </span>
+              )}
             </NavLink>
             <NavLink
               to="/about"
               className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
             >
-              <BookOpen size={16} aria-hidden="true" />
+              <BookOpen size={17} aria-hidden="true" />
               <span>How it works</span>
             </NavLink>
-            <NavLink to="/" className="nav-new">
-              <Plus size={16} aria-hidden="true" />
+            <NavLink to="/" className="nav-new" aria-label="New plan">
+              <Plus size={17} aria-hidden="true" />
               <span>New plan</span>
             </NavLink>
           </nav>

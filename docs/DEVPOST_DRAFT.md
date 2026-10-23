@@ -4,7 +4,7 @@
 **Track:** Best Apps and Agents  
 **Tagline:** Ordered action plans where every important step shows its evidence—and every gap stays visible.
 
-> Do not publish this draft as a compliant entry until the bracketed runtime, deployment, repository-ref, and video fields are replaced with verified facts. No URL below is invented.
+> Do not publish this draft as a compliant entry until the bracketed runtime, repository-ref, and video fields are replaced with verified facts. The public demo URL is verified only for the static/sample scope described below.
 
 ## Elevator pitch
 
@@ -48,7 +48,7 @@ The model cannot grant its own claims a supported label. Code checks each citati
 
 ## Accomplishments
 
-The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. In the documented local run, 40 unit/API/component tests, six Chromium E2E tests, and 12 evaluation cases passed; home and sample-plan axe scans returned no violations.
+The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. The redesigned interface pairs an editorial landing page with a quiet plan-and-evidence workspace, visible prerequisites, accessible confirmation dialogs, and mobile navigation. In the documented local run, **41 unit/API/component tests, 12 Chromium E2E tests, and 12 evaluation cases** passed. Tested axe scans with WCAG 2.2 AA tags returned no violations, and all four main routes passed overflow checks at six viewport widths.
 
 **Live Nebius/Tavily performance is not claimed without receipts.**
 
@@ -70,7 +70,7 @@ React · TypeScript · Express · Vite · Zod · Cheerio · NVIDIA Nemotron 3 Na
 
 ## Submission links
 
-- **Working demo:** `[INSERT VERIFIED PUBLIC URL — PENDING DEPLOYMENT]`
+- **Working demo:** `https://proofpath-woad.vercel.app` — public static/sample deployment; genuine live workflow remains blocked.
 - **Source code:** `https://github.com/timmyspurs12/WeatherPact` — `[INSERT EXACT SUBMISSION REF/COMMIT]`
 - **Public YouTube video (<3:00):** `[INSERT ACTUAL PUBLIC URL — NOT RECORDED]`
 - **Runtime receipt:** `[INSERT REAL NEBIUS RESPONSE ID — BLOCKED]`

@@ -8,6 +8,8 @@ ProofPath turns a concrete administrative task and official source passages into
 
 > **Current verification status:** the application builds and its deterministic/browser tests pass in this workspace. No genuine Nebius or Tavily call has been observed because credentials are unavailable. The included sample is explicitly static and does **not** establish hackathon runtime compliance. Do not describe this repository as submission-ready until `npm run verify:live` and a real deployed workflow succeed.
 
+**Public static/sample demo:** <https://proofpath-woad.vercel.app>. See [deployment evidence](docs/DEPLOYMENT.md) for the exact deployed commit and hosted checks.
+
 ## Why this is not another chatbot
 
 - **Action, not a summary:** ordered instructions, prerequisites, observable completion criteria, progress, editing, and export.
@@ -142,7 +144,7 @@ See [architecture and trust boundaries](docs/ARCHITECTURE.md), [deployment](docs
 
 ## Measured quality evidence
 
-At the documented local run: **40/40 unit/API/component tests**, **6/6 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero known vulnerabilities. Both home and sample-plan axe WCAG A/AA scans returned no violations. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment.
+At the documented local run: **41/41 unit/API/component tests**, **12/12 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero vulnerabilities. Axe scans with WCAG 2.2 AA tags returned no violations on the tested desktop/mobile routes and confirmation dialog. Home, Plan, About, and Saved passed horizontal-overflow checks at **1440, 1280, 1024, 768, 390, and 320 px**. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment or complete WCAG conformance.
 
 The [evaluation report](docs/EVALUATION.md) defines citation coverage, unsupported-claim rejection, conflicts, missing information, workflow completion, provider failures, and fixture latency. It is intentionally adversarial and small; it is not a Nemotron accuracy benchmark.
 

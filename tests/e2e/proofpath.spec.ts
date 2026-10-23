@@ -81,10 +81,14 @@ test('mobile layout has no horizontal page overflow', async ({ page }) => {
 
 test('home and sample plan pass automated WCAG A/AA checks', async ({ page }) => {
   await page.goto('/');
-  const home = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const home = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
   expect(home.violations).toEqual([]);
   await openSample(page);
-  const plan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const plan = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
   expect(plan.violations).toEqual([]);
 });
 
@@ -129,4 +133,131 @@ test('an unconfigured live request shows the real blocker instead of a simulated
   await expect(
     page.getByRole('heading', { name: 'Renew your UK passport', exact: true }),
   ).toHaveCount(0);
+});
+
+test('saved plans reopen durable routes and deletion is confirmed accessibly', async ({ page }) => {
+  await openSample(page);
+  await page.getByRole('button', { name: 'Save to browser' }).click();
+  const savedUrl = page.url();
+  expect(savedUrl).toMatch(/\/plans\/(?!current$).+/);
+
+  await page
+    .locator('.main-nav')
+    .getByRole('link', { name: /Saved plans/ })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Saved plans', exact: true })).toBeVisible();
+  await page.locator('.saved-card-main').click();
+  await expect(page).toHaveURL(savedUrl);
+  await page.reload();
+  await expect(page.locator('.action-step')).toHaveCount(6);
+
+  await page
+    .locator('.main-nav')
+    .getByRole('link', { name: /Saved plans/ })
+    .click();
+  await page.getByRole('button', { name: 'Delete Renew your UK passport' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete this saved plan?' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('.saved-card')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Delete Renew your UK passport' }).click();
+  await page.getByRole('button', { name: 'Delete plan', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'No saved paths yet' })).toBeVisible();
+  await expect(page.locator('.saved-card')).toHaveCount(0);
+});
+
+test('step deletion can be cancelled or confirmed without losing dependency integrity', async ({
+  page,
+}) => {
+  await openSample(page);
+  await expect(page.locator('.step-dependencies')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Edit plan' }).click();
+  await page.getByRole('button', { name: 'Delete step 6' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete this step?' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('.action-step')).toHaveCount(6);
+
+  await page.getByRole('button', { name: 'Delete step 6' }).click();
+  await page.getByRole('button', { name: 'Delete step', exact: true }).click();
+  await expect(page.locator('.action-step')).toHaveCount(5);
+  await expect(page.getByRole('heading', { name: 'Track the submitted application' })).toHaveCount(
+    0,
+  );
+});
+
+test('task outlines prefill editable fields without retaining unrelated sources', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Fill a real UK passport task' }).click();
+  await expect(page.getByLabel('Official source URLs')).toHaveValue(/gov\.uk/);
+  await page.getByRole('button', { name: 'Scholarship documents' }).click();
+  await expect(page.getByLabel('Your task')).toHaveValue(
+    'Prepare the documents for a scholarship application.',
+  );
+  await expect(page.getByLabel('Jurisdiction')).toHaveValue('Nigeria');
+  await expect(page.getByLabel('Official source URLs')).toHaveValue('');
+  await page.getByRole('button', { name: 'Utility bill review' }).click();
+  await expect(page.getByLabel('Your task')).toHaveValue(
+    'Review an electricity bill and dispute an incorrect charge.',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Renew your UK passport', exact: true }),
+  ).toHaveCount(0);
+});
+
+test('all routes avoid horizontal overflow at the six target widths', async ({ page }) => {
+  for (const width of [1440, 1280, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const path of ['/', '/about', '/saved']) {
+      await page.goto(path);
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        `${path} overflows at ${width}px`,
+      ).toBe(true);
+    }
+    await openSample(page);
+    await expect(page.locator('.action-step')).toHaveCount(6);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      `Plan overflows at ${width}px`,
+    ).toBe(true);
+    if (width <= 390) {
+      const newPlan = await page.getByRole('link', { name: 'New plan' }).boundingBox();
+      expect(newPlan?.height).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
+test('mobile supporting routes and confirmation dialog pass WCAG 2.2 A/AA checks', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of ['/', '/about', '/saved']) {
+    await page.goto(path);
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(result.violations, `${path} has accessibility violations`).toEqual([]);
+  }
+
+  await openSample(page);
+  const mobilePlan = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(mobilePlan.violations).toEqual([]);
+  await page.getByRole('button', { name: 'Save to browser' }).click();
+  await page
+    .locator('.main-nav')
+    .getByRole('link', { name: /Saved plans/ })
+    .click();
+  await page.getByRole('button', { name: 'Delete Renew your UK passport' }).click();
+  const dialog = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(dialog.violations).toEqual([]);
 });

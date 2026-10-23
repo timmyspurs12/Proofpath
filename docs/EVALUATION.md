@@ -1,6 +1,6 @@
 # ProofPath evaluation report
 
-Generated: 2026-10-23T19:42:43.907Z
+Generated: 2026-10-23T20:33:53.065Z
 
 **Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**
 
@@ -13,7 +13,7 @@ Generated: 2026-10-23T19:42:43.907Z
 - Missing-information cases handled: **1/1**
 - Mocked-provider end-to-end API workflows: **1/1**
 - Provider failure cases contained: **3/3**
-- Median local fixture/API latency: **0.46 ms** (not model latency)
+- Median local fixture/API latency: **0.59 ms** (not model latency)
 
 ## Metric definitions
 
@@ -28,18 +28,18 @@ Generated: 2026-10-23T19:42:43.907Z
 
 | Case                                | Category         | Result | Latency (ms) |
 | ----------------------------------- | ---------------- | ------ | -----------: |
-| valid-supported-and-inferred        | evidence         | PASS   |         3.64 |
-| fabricated-supported-quote          | evidence         | PASS   |         0.43 |
-| unknown-source-citation             | evidence         | PASS   |         0.28 |
-| unsupported-date-removal            | evidence         | PASS   |         0.33 |
-| valid-two-source-conflict           | evidence         | PASS   |         0.49 |
-| fabricated-conflict-rejection       | evidence         | PASS   |         0.21 |
-| missing-information-remains-visible | evidence         | PASS   |         0.18 |
-| dependency-cycle-removal            | evidence         | PASS   |         0.38 |
-| provider-missing-credential         | provider-failure | PASS   |         0.67 |
-| provider-authentication-failure     | provider-failure | PASS   |         1.34 |
-| provider-schema-failure             | provider-failure | PASS   |         1.79 |
-| mocked-provider-full-api-workflow   | workflow         | PASS   |        47.45 |
+| valid-supported-and-inferred        | evidence         | PASS   |         3.61 |
+| fabricated-supported-quote          | evidence         | PASS   |         0.49 |
+| unknown-source-citation             | evidence         | PASS   |         0.31 |
+| unsupported-date-removal            | evidence         | PASS   |         0.31 |
+| valid-two-source-conflict           | evidence         | PASS   |         0.69 |
+| fabricated-conflict-rejection       | evidence         | PASS   |         0.27 |
+| missing-information-remains-visible | evidence         | PASS   |         0.27 |
+| dependency-cycle-removal            | evidence         | PASS   |         0.35 |
+| provider-missing-credential         | provider-failure | PASS   |         0.88 |
+| provider-authentication-failure     | provider-failure | PASS   |         1.45 |
+| provider-schema-failure             | provider-failure | PASS   |         1.91 |
+| mocked-provider-full-api-workflow   | workflow         | PASS   |        45.27 |
 
 ## Limitations
 

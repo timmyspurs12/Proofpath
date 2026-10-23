@@ -1,7 +1,7 @@
 # ProofPath final A–J handoff
 
 Date: **2026-10-23 UTC**  
-Overall status: **implemented and locally verified within deterministic scope; not submission-ready because live runtime, public deployment, and public video gates remain unresolved.**
+Overall status: **redesigned and verified within deterministic/static scope; not submission-ready because genuine live Nebius inference and the public video gate remain unresolved.** A public static/sample deployment exists, but it does not prove live-provider compliance.
 
 ## A — Product and track
 
@@ -43,9 +43,9 @@ Tavily basic discovery is implemented optionally, but **no genuine Tavily call o
 
 ## F — Design and accessibility
 
-Custom editorial interface with self-hosted DM Sans/Newsreader, deep navy/teal palette, source ledger, inspectable quotes, responsive forms, loading/empty/error states, and mobile stacking. Three actual browser screenshots are in `docs/screenshots/`.
+The **Quiet Intelligence** redesign uses warm porcelain, deep ink, petrol, sage, amber, and muted red tokens with self-hosted DM Sans/Newsreader. Serif is reserved for the landing promise and evidence quotations. Home contains an authentic sample-plan preview and immediate composer; the workspace uses an editorial action path, visible prerequisites, exact passages, a source ledger, compact progress/export controls, explicit conflicts, and unresolved questions. Saved, About, loading, empty, error, editing, and confirmation states share the same system. Mobile navigation remains operable at 320 px.
 
-Real Chromium checks at 1440 px and 375 px passed; no horizontal mobile overflow was found. axe WCAG A/AA scans returned no violations on home and sample plan after contrast and accessible-name fixes. This is not a manual screen-reader audit or complete browser/device matrix.
+Six full-page views and twelve viewport captures are in `docs/screenshots/`; expanded evidence, editing, dialog, error, empty, and missing-plan states were also visually inspected. Home, Plan, About, and Saved passed horizontal-overflow checks at **1440, 1280, 1024, 768, 390, and 320 px**. Tested axe scans with WCAG 2.2 AA tags returned no violations on desktop Home/Plan and mobile Home/Plan/About/Saved/dialog. This is not a manual screen-reader audit, complete WCAG certification, or multi-engine browser matrix.
 
 ## G — Tests and evaluation
 
@@ -53,8 +53,8 @@ Observed locally:
 
 - TypeScript and production build: PASS
 - Generated Vercel function plain-Node smoke test: PASS (honest HTTP 200 health)
-- Vitest: **40/40 PASS** across six files
-- Playwright: **6/6 PASS** against the production build
+- Vitest: **41/41 PASS** across seven files
+- Playwright: **12/12 PASS** against the production build
 - Evaluation: **12/12 PASS**
 - npm audit: **0 known vulnerabilities** at run time
 
@@ -64,24 +64,24 @@ The evaluation artifact is generated from executed cases, not hard-coded success
 
 A separate Vercel project named `proofpath` was created without changing the existing WeatherPact project. Vite/static + Express catch-all function configuration, SPA rewrites, security headers, 60-second function budget, and Node production serving are implemented.
 
-**Public deployment URL:** `[PENDING ACTUAL DEPLOYMENT]`  
-**Deployed commit:** `[PENDING]`  
-**Post-deployment browser/API verification:** `[PENDING]`
+- **Public deployment URL:** `https://proofpath-woad.vercel.app`
+- **Deployed commit and deployment ID:** recorded from observed Vercel results in `docs/DEPLOYMENT.md`
+- **Post-deployment browser/API verification:** recorded separately in `docs/DEPLOYMENT.md`; local success is not substituted for hosted verification
 
-See `docs/DEPLOYMENT.md` for the exact verification gate. A static/sample deployment alone will not clear the live Nebius requirement.
+A static/sample deployment alone does not clear the live Nebius requirement.
 
 ## I — Demo and submission material
 
-Complete in the worktree: README, MIT license, environment template, architecture, deployment guide, CI, compliance matrix, test/evaluation reports, three screenshots, timestamped **2:45** demo script/storyboard, Devpost draft, and this handoff.
+Complete in the worktree: README, MIT license, environment template, architecture, deployment guide, CI, compliance matrix, test/evaluation reports, eighteen durable screenshots, timestamped **2:45** demo script/storyboard, Devpost draft, and this handoff.
 
 **Public YouTube video:** not recorded or uploaded. Recording genuine live shots is blocked by the same credential gap, and no YouTube publishing connection is available. No URL is invented. Sponsor feedback is drafted but not represented as submitted.
 
 ## J — Exact blockers and next actions
 
 1. **Mandatory Nebius runtime:** provision a valid Token Factory key; run `npm run verify:live`; then complete a real deployed UK passport plan and retain its genuine response receipt.
-2. **Public demo:** deploy the exact tested branch to the separate `proofpath` Vercel project; verify health, routes, headers, sample, real workflow, and clean-browser public access; record URL and commit.
+2. **Provider privacy and optional bonus:** resolve the requested 30-day retention behavior from actual Nebius account/documentation evidence. Run a genuine Tavily call only if claiming its bonus; mocks and configuration flags prove neither.
 3. **Public video:** record the genuine workflow using `docs/DEMO_SCRIPT.md`, keep it under three minutes, upload publicly to YouTube, and insert the actual URL.
-4. **Submission:** push the final public branch, confirm license detection, enter verified links and feedback in Devpost, and confirm personal eligibility/access. Do not claim Tavily bonus without its own genuine call.
+4. **Submission:** push the final public branch, confirm license detection, enter verified links and feedback in Devpost, and confirm personal eligibility/access. Keep the deployed commit aligned with the tested runtime.
 5. **Residual product limits:** exact quotes do not prove semantics; source freshness/authority needs human judgment; PDF/image extraction, distributed rate limiting, account sync, and high-traffic operations are outside this small release.
 
-Until those external gates are resolved, the accurate description is: **a complete, locally tested ProofPath implementation with an unavailable mandatory live-inference dependency—not a verified hackathon submission.**
+Until those external gates are resolved, the accurate description is: **a redesigned, locally tested ProofPath implementation with a public static/sample demo but unavailable mandatory live inference and no public video—not a verified hackathon submission.**
