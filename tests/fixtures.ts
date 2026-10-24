@@ -16,6 +16,7 @@ export function makeSource(
   id: string,
   text: string,
   url = `https://example.com/${id}`,
+  overrides: Partial<RetrievedSource['source']> = {},
 ): RetrievedSource {
   return {
     text,
@@ -31,6 +32,7 @@ export function makeSource(
       contentHash: hashText(text),
       excerpt: text.slice(0, 2800),
       stale: false,
+      ...overrides,
     },
   };
 }

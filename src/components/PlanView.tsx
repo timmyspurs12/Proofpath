@@ -31,6 +31,7 @@ import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { apiFetch, ApiError } from '../lib/api';
 import { downloadText, formatDate, planProgress, safeFilename, supportedCount } from '../lib/utils';
 import { planJsonFilename, planMarkdownFilename, planToMarkdown } from '../lib/export';
+import { RuntimeReceipt } from './RuntimeReceipt';
 import { Alert, Button, ConfirmDialog, EvidenceBadge, Toast } from './ui';
 
 interface StepDraft {
@@ -325,6 +326,8 @@ export function PlanView({ plan }: { plan: Plan }) {
           <p>{plan.goal}</p>
         </div>
       </header>
+
+      <RuntimeReceipt runtime={plan.runtime} />
 
       {plan.runtime.mode === 'sample' && (
         <Alert tone="info" title="Interface sample — not a live AI result">
@@ -788,66 +791,6 @@ export function PlanView({ plan }: { plan: Plan }) {
               />
             ))}
           </div>
-          <details className="runtime-receipt">
-            <summary>
-              Runtime receipt <ChevronDown size={14} />
-            </summary>
-            <dl>
-              <div>
-                <dt>Mode</dt>
-                <dd>{plan.runtime.mode === 'live' ? 'Live API response' : 'Static sample'}</dd>
-              </div>
-              <div>
-                <dt>Provider</dt>
-                <dd>{plan.runtime.provider === 'nebius' ? 'Nebius Token Factory' : 'None'}</dd>
-              </div>
-              {plan.runtime.model && (
-                <div>
-                  <dt>Model</dt>
-                  <dd>
-                    <code>{plan.runtime.model}</code>
-                  </dd>
-                </div>
-              )}
-              {plan.runtime.responseId && (
-                <div>
-                  <dt>Response ID</dt>
-                  <dd>
-                    <code>{plan.runtime.responseId}</code>
-                  </dd>
-                </div>
-              )}
-              {plan.runtime.latencyMs !== null && (
-                <div>
-                  <dt>Model latency</dt>
-                  <dd>{(plan.runtime.latencyMs / 1000).toFixed(1)} s</dd>
-                </div>
-              )}
-              {plan.runtime.usage && (
-                <div>
-                  <dt>Tokens</dt>
-                  <dd>
-                    {plan.runtime.usage.inputTokens} in · {plan.runtime.usage.outputTokens} out
-                  </dd>
-                </div>
-              )}
-              <div>
-                <dt>Retrieval</dt>
-                <dd>
-                  {plan.runtime.retrieval.directFetches} direct ·{' '}
-                  {plan.runtime.retrieval.tavilyCalls} Tavily
-                </dd>
-              </div>
-              {plan.runtime.retrieval.tavilyRequestIds.map((id) => (
-                <div key={id}>
-                  <dt>Tavily ID</dt>
-                  <dd>
-                    <code>{id}</code>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </details>
           <div className="export-note no-print">
             <Download size={15} />
             <p>

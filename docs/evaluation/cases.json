@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ranAt": "2026-10-23T20:57:46.094Z",
+  "ranAt": "2026-10-24T08:02:00.056Z",
   "mode": "deterministic-fixtures",
   "liveModel": false,
   "model": null,
@@ -8,13 +8,13 @@
     "node": "v22.22.3"
   },
   "totals": {
-    "cases": 12,
-    "passed": 12,
+    "cases": 14,
+    "passed": 14,
     "failed": 0
   },
   "metrics": {
-    "citationCoverage": 0.26666666666666666,
-    "unsupportedClaimRate": 0.375,
+    "citationCoverage": 0.2857142857142857,
+    "unsupportedClaimRate": 0.5,
     "conflictsDetected": 1,
     "conflictsExpected": 1,
     "missingInformationHandled": 1,
@@ -23,10 +23,10 @@
     "endToEndCases": 1,
     "providerFailuresHandled": 3,
     "providerFailureCases": 3,
-    "medianFixtureLatencyMs": 0.68
+    "medianFixtureLatencyMs": 1.2
   },
   "definitions": {
-    "citationCoverage": "Final source-supported steps divided by all steps in the eight evidence fixtures.",
+    "citationCoverage": "Final source-supported steps divided by all steps in the deterministic evidence fixtures.",
     "unsupportedClaimRate": "Model-claimed supported steps rejected for lack of a valid citation, divided by all model-claimed supported steps in those fixtures.",
     "latency": "Median wall time of all local fixture/API cases; no live model latency is included."
   },
@@ -35,84 +35,98 @@
       "id": "valid-supported-and-inferred",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 7.76,
+      "latencyMs": 12.36,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "fabricated-supported-quote",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.63,
+      "latencyMs": 0.77,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "unknown-source-citation",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.28,
+      "latencyMs": 0.37,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "unsupported-date-removal",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.3,
+      "latencyMs": 0.51,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "valid-two-source-conflict",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 1.2,
+      "latencyMs": 1.74,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "fabricated-conflict-rejection",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.37,
+      "latencyMs": 0.5,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "missing-information-remains-visible",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.64,
+      "latencyMs": 0.74,
+      "detail": "Expected deterministic behavior observed."
+    },
+    {
+      "id": "official-contradiction-downgrades-fee",
+      "category": "evidence",
+      "passed": true,
+      "latencyMs": 2.48,
+      "detail": "Expected deterministic behavior observed."
+    },
+    {
+      "id": "route-specific-requirement-cannot-mix-routes",
+      "category": "evidence",
+      "passed": true,
+      "latencyMs": 1.47,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "dependency-cycle-removal",
       "category": "evidence",
       "passed": true,
-      "latencyMs": 0.62,
+      "latencyMs": 0.52,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "provider-missing-credential",
       "category": "provider-failure",
       "passed": true,
-      "latencyMs": 0.71,
+      "latencyMs": 0.92,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "provider-authentication-failure",
       "category": "provider-failure",
       "passed": true,
-      "latencyMs": 1.35,
+      "latencyMs": 1.77,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "provider-schema-failure",
       "category": "provider-failure",
       "passed": true,
-      "latencyMs": 2.54,
+      "latencyMs": 4.71,
       "detail": "Expected deterministic behavior observed."
     },
     {
       "id": "mocked-provider-full-api-workflow",
       "category": "workflow",
       "passed": true,
-      "latencyMs": 77.51,
+      "latencyMs": 89.49,
       "detail": "Expected deterministic behavior observed."
     }
   ]

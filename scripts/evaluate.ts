@@ -12,6 +12,11 @@ import type { RetrievedSource } from '../server/lib/retrieval';
 import { TavilyClient } from '../server/lib/tavily';
 import { PlanResponseSchema } from '../src/shared/schemas';
 import { fixtureRuntime, makeInput, makeModelPlan, makeSource } from '../tests/fixtures';
+import {
+  makeObservedModelPlan,
+  makePassportInput,
+  makePassportSources,
+} from '../tests/fixtures/passport-live-export';
 
 interface CaseResult {
   id: string;
@@ -154,6 +159,42 @@ await runCase('missing-information-remains-visible', 'evidence', () => {
   const plan = validate(model);
   assert.equal(plan.steps[0].status, 'unverifiable');
   assert.equal(plan.unresolvedQuestions.length, 1);
+});
+
+await runCase('official-contradiction-downgrades-fee', 'evidence', () => {
+  const result = validateEvidencePlan({
+    modelPlan: makeObservedModelPlan(),
+    sources: makePassportSources(),
+    input: makePassportInput(),
+    runtime: fixtureRuntime,
+    id: 'passport-observed-export',
+    now: () => new Date('2026-10-24T12:00:00.000Z'),
+  });
+  evidenceRuns.push(result.metrics);
+  const fee = result.plan.steps.find((step) => step.title === 'Pay the online renewal fee');
+  assert.ok(fee, 'fee step exists');
+  assert.equal(fee!.status, 'unverifiable');
+  assert.equal(result.metrics.contradictedClaimCount >= 1, true);
+  // The contradicted citation remains inspectable rather than being deleted.
+  assert.equal(fee!.evidence.length, 1);
+});
+
+await runCase('route-specific-requirement-cannot-mix-routes', 'evidence', () => {
+  const result = validateEvidencePlan({
+    modelPlan: makeObservedModelPlan(),
+    sources: makePassportSources(),
+    input: makePassportInput(),
+    runtime: fixtureRuntime,
+    id: 'passport-route-mixing',
+    now: () => new Date('2026-10-24T12:00:00.000Z'),
+  });
+  evidenceRuns.push(result.metrics);
+  const printed = result.plan.steps.find((step) => step.title === 'Get printed photos');
+  const digital = result.plan.steps.find((step) => step.title === 'Prepare a digital photo');
+  assert.ok(printed && digital, 'both photo steps exist');
+  assert.equal(printed!.status, 'unverifiable');
+  assert.equal(digital!.status, 'supported');
+  assert.equal(result.plan.unresolvedQuestions.length, 1);
 });
 
 await runCase('dependency-cycle-removal', 'evidence', () => {
@@ -311,14 +352,14 @@ const artifact = {
   },
   definitions: {
     citationCoverage:
-      'Final source-supported steps divided by all steps in the eight evidence fixtures.',
+      'Final source-supported steps divided by all steps in the deterministic evidence fixtures.',
     unsupportedClaimRate:
       'Model-claimed supported steps rejected for lack of a valid citation, divided by all model-claimed supported steps in those fixtures.',
     latency: 'Median wall time of all local fixture/API cases; no live model latency is included.',
   },
 };
 
-const report = `# ProofPath evaluation report\n\nGenerated: ${artifact.ranAt}\n\n**Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**\n\n## Results\n\n- Cases: **${passed}/${cases.length} passed** (${cases.length - passed} failed)\n- Final citation coverage: **${(artifact.metrics.citationCoverage * 100).toFixed(1)}%**\n- Raw supported claims rejected: **${(artifact.metrics.unsupportedClaimRate * 100).toFixed(1)}%**\n- Expected genuine conflicts detected: **${conflictsDetected}/${genuineConflictsExpected}**\n- Missing-information cases handled: **${missingInformationHandled}/${missingInformationCases}**\n- Mocked-provider end-to-end API workflows: **${artifact.metrics.endToEndCompleted}/${artifact.metrics.endToEndCases}**\n- Provider failure cases contained: **${artifact.metrics.providerFailuresHandled}/${artifact.metrics.providerFailureCases}**\n- Median local fixture/API latency: **${medianFixtureLatencyMs} ms** (not model latency)\n\n## Metric definitions\n\n- **Citation coverage:** final source-supported steps / all steps in the eight evidence fixtures. It is a small fixture result, not an accuracy estimate for real tasks.\n- **Unsupported-claim rate:** model-claimed supported steps rejected for lack of a valid citation / all model-claimed supported steps in those fixtures.\n- **Conflict detection:** a conflict survives only with exact passages from at least two sources. A separate fabricated-conflict case must be rejected.\n- **Missing information:** an unsupported step must become unverifiable while its unresolved question remains visible.\n- **End-to-end completion:** an uploaded source traverses the real Express route, retrieval normalization, a mocked Nebius transport, schema parsing, and evidence gate. It does not test live model behavior.\n- **Provider failure handling:** missing credentials, authentication failure, and invalid structured output must return typed errors rather than fabricated plans.\n\n## Case ledger\n\n| Case | Category | Result | Latency (ms) |\n| --- | --- | --- | ---: |\n${cases.map((entry) => `| ${entry.id} | ${entry.category} | ${entry.passed ? 'PASS' : 'FAIL'} | ${entry.latencyMs} |`).join('\n')}\n\n## Limitations\n\nThis is a deliberately small adversarial suite, not a representative benchmark. Exact-quote matching does not prove semantic entailment, source authority, freshness, or jurisdictional applicability. Live model latency, quality, Nebius availability, Tavily discovery, and production behavior require separate genuine runtime verification.\n`;
+const report = `# ProofPath evaluation report\n\nGenerated: ${artifact.ranAt}\n\n**Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**\n\n## Results\n\n- Cases: **${passed}/${cases.length} passed** (${cases.length - passed} failed)\n- Final citation coverage: **${(artifact.metrics.citationCoverage * 100).toFixed(1)}%**\n- Raw supported claims rejected: **${(artifact.metrics.unsupportedClaimRate * 100).toFixed(1)}%**\n- Expected genuine conflicts detected: **${conflictsDetected}/${genuineConflictsExpected}**\n- Missing-information cases handled: **${missingInformationHandled}/${missingInformationCases}**\n- Mocked-provider end-to-end API workflows: **${artifact.metrics.endToEndCompleted}/${artifact.metrics.endToEndCases}**\n- Provider failure cases contained: **${artifact.metrics.providerFailuresHandled}/${artifact.metrics.providerFailureCases}**\n- Median local fixture/API latency: **${medianFixtureLatencyMs} ms** (not model latency)\n\n## Metric definitions\n\n- **Citation coverage:** final source-supported steps / all steps in the deterministic evidence fixtures. It is a small fixture result, not an accuracy estimate for real tasks.\n- **Unsupported-claim rate:** model-claimed supported steps rejected for lack of a valid citation / all model-claimed supported steps in those fixtures.\n- **Conflict detection:** a conflict survives only with exact passages from at least two sources. A separate fabricated-conflict case must be rejected.\n- **Missing information:** an unsupported step must become unverifiable while its unresolved question remains visible.\n- **End-to-end completion:** an uploaded source traverses the real Express route, retrieval normalization, a mocked Nebius transport, schema parsing, and evidence gate. It does not test live model behavior.\n- **Provider failure handling:** missing credentials, authentication failure, and invalid structured output must return typed errors rather than fabricated plans.\n\n## Case ledger\n\n| Case | Category | Result | Latency (ms) |\n| --- | --- | --- | ---: |\n${cases.map((entry) => `| ${entry.id} | ${entry.category} | ${entry.passed ? 'PASS' : 'FAIL'} | ${entry.latencyMs} |`).join('\n')}\n\n## Limitations\n\nThis is a deliberately small adversarial suite, not a representative benchmark. Exact-quote matching does not prove semantic entailment, source authority, freshness, or jurisdictional applicability. Live model latency, quality, Nebius availability, Tavily discovery, and production behavior require separate genuine runtime verification.\n`;
 
 await mkdir(new URL('../docs/evaluation/', import.meta.url), { recursive: true });
 await mkdir(new URL('../public/', import.meta.url), { recursive: true });

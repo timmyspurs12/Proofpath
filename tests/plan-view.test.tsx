@@ -6,6 +6,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { PlanView } from '../src/components/PlanView';
 import { PlanLibraryProvider } from '../src/context/PlanLibraryContext';
 import { validateEvidencePlan } from '../server/lib/evidence';
+import type { Plan } from '../src/shared/schemas';
+import { samplePlan } from '../src/data/sample-plan';
 import { fixtureRuntime, makeInput, makeModelPlan, makeSource } from './fixtures';
 
 describe('plan conflict presentation', () => {
@@ -59,5 +61,52 @@ describe('plan conflict presentation', () => {
       'href',
       'https://example.com/S2',
     );
+  });
+});
+
+describe('runtime receipt presentation', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(cleanup);
+
+  function renderPlan(plan: Plan) {
+    return render(
+      <MemoryRouter>
+        <PlanLibraryProvider>
+          <PlanView plan={plan} />
+        </PlanLibraryProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('shows the live receipt fields immediately without expanding a disclosure', () => {
+    const { plan } = validateEvidencePlan({
+      modelPlan: makeModelPlan(),
+      sources: [makeSource('S1', 'The fee is £102.')],
+      input: makeInput(),
+      runtime: fixtureRuntime,
+      now: () => new Date('2026-10-23T12:00:00.000Z'),
+      id: 'receipt-fixture',
+    });
+
+    renderPlan(plan);
+
+    expect(screen.getByRole('heading', { name: 'Runtime receipt' })).toBeVisible();
+    expect(screen.getByText('Live API response')).toBeVisible();
+    expect(screen.getByText('Nebius Token Factory')).toBeVisible();
+    expect(screen.getByText('nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B')).toBeVisible();
+    expect(screen.getByText('fixture-response-not-a-live-call')).toBeVisible();
+    expect(screen.getByText('0.0 s')).toBeVisible();
+    expect(document.querySelector('.runtime-receipt-card')).not.toBeNull();
+    // The old collapsed sidebar disclosure is gone; nothing stays hidden.
+    expect(document.querySelector('.runtime-receipt')).toBeNull();
+  });
+
+  it('labels a sample plan receipt as having no provider response or response ID', () => {
+    renderPlan(samplePlan);
+
+    expect(screen.getByRole('heading', { name: 'Runtime receipt' })).toBeVisible();
+    expect(screen.getByText('Static sample — no provider response')).toBeVisible();
+    expect(screen.queryByText('Provider response ID')).toBeNull();
+    expect(screen.queryByText('Model latency')).toBeNull();
   });
 });
