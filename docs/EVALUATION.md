@@ -1,6 +1,6 @@
 # ProofPath evaluation report
 
-Generated: 2026-10-24T17:32:44.424Z
+Generated: 2026-10-24T18:21:55.564Z
 
 **Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**
 
@@ -14,7 +14,7 @@ Generated: 2026-10-24T17:32:44.424Z
 - Mocked-provider end-to-end API workflows: **1/1**
 - Provider failure cases contained: **3/3**
 - Cross-jurisdiction universality cases: **11/11**
-- Median local fixture/API latency: **0.57 ms** (not model latency)
+- Median local fixture/API latency: **0.64 ms** (not model latency)
 
 ## Cross-jurisdiction universality scenarios
 
@@ -46,31 +46,31 @@ The engine guard `xjur-engine-contains-no-country-specific-rules` asserts the co
 
 | Case                                                    | Category         | Result | Latency (ms) |
 | ------------------------------------------------------- | ---------------- | ------ | -----------: |
-| valid-supported-and-inferred                            | evidence         | PASS   |         10.3 |
-| fabricated-supported-quote                              | evidence         | PASS   |         0.51 |
-| unknown-source-citation                                 | evidence         | PASS   |         0.31 |
-| unsupported-date-removal                                | evidence         | PASS   |         0.54 |
-| valid-two-source-conflict                               | evidence         | PASS   |         1.24 |
-| fabricated-conflict-rejection                           | evidence         | PASS   |         0.45 |
-| missing-information-remains-visible                     | evidence         | PASS   |         0.58 |
-| official-contradiction-downgrades-fee                   | evidence         | PASS   |         1.75 |
-| route-specific-requirement-cannot-mix-routes            | evidence         | PASS   |         1.12 |
-| dependency-cycle-removal                                | evidence         | PASS   |         0.42 |
-| xjur-nigeria-domestic-passport-ngn-and-routes           | universality     | PASS   |         1.13 |
-| xjur-canada-study-permit-third-country-cad              | universality     | PASS   |         0.46 |
-| xjur-france-business-registration-non-passport          | universality     | PASS   |          0.6 |
-| xjur-consular-route-protected-abroad                    | universality     | PASS   |         0.57 |
-| xjur-weak-evidence-stays-honest                         | universality     | PASS   |         0.42 |
-| xjur-missing-jurisdiction-triggers-clarification        | universality     | PASS   |         0.45 |
-| xjur-specified-request-needs-no-clarification           | universality     | PASS   |         0.24 |
-| xjur-inaccessible-official-source-backfills-alternative | universality     | PASS   |         8.65 |
-| xjur-no-sources-fails-closed-without-invention          | universality     | PASS   |         0.34 |
-| xjur-engine-contains-no-country-specific-rules          | universality     | PASS   |        14.16 |
-| xjur-stale-source-and-unsupported-deadline-warn         | universality     | PASS   |         0.34 |
-| provider-missing-credential                             | provider-failure | PASS   |         2.52 |
-| provider-authentication-failure                         | provider-failure | PASS   |         0.42 |
-| provider-schema-failure                                 | provider-failure | PASS   |         2.32 |
-| mocked-provider-full-api-workflow                       | workflow         | PASS   |        35.83 |
+| valid-supported-and-inferred                            | evidence         | PASS   |        12.16 |
+| fabricated-supported-quote                              | evidence         | PASS   |         0.56 |
+| unknown-source-citation                                 | evidence         | PASS   |         0.23 |
+| unsupported-date-removal                                | evidence         | PASS   |         0.64 |
+| valid-two-source-conflict                               | evidence         | PASS   |         1.36 |
+| fabricated-conflict-rejection                           | evidence         | PASS   |         0.55 |
+| missing-information-remains-visible                     | evidence         | PASS   |         0.54 |
+| official-contradiction-downgrades-fee                   | evidence         | PASS   |         2.44 |
+| route-specific-requirement-cannot-mix-routes            | evidence         | PASS   |         1.27 |
+| dependency-cycle-removal                                | evidence         | PASS   |          0.5 |
+| xjur-nigeria-domestic-passport-ngn-and-routes           | universality     | PASS   |         1.32 |
+| xjur-canada-study-permit-third-country-cad              | universality     | PASS   |         0.61 |
+| xjur-france-business-registration-non-passport          | universality     | PASS   |            1 |
+| xjur-consular-route-protected-abroad                    | universality     | PASS   |         0.92 |
+| xjur-weak-evidence-stays-honest                         | universality     | PASS   |         0.54 |
+| xjur-missing-jurisdiction-triggers-clarification        | universality     | PASS   |         0.66 |
+| xjur-specified-request-needs-no-clarification           | universality     | PASS   |         0.26 |
+| xjur-inaccessible-official-source-backfills-alternative | universality     | PASS   |         6.28 |
+| xjur-no-sources-fails-closed-without-invention          | universality     | PASS   |         0.36 |
+| xjur-engine-contains-no-country-specific-rules          | universality     | PASS   |        10.45 |
+| xjur-stale-source-and-unsupported-deadline-warn         | universality     | PASS   |         0.47 |
+| provider-missing-credential                             | provider-failure | PASS   |         0.37 |
+| provider-authentication-failure                         | provider-failure | PASS   |         0.34 |
+| provider-schema-failure                                 | provider-failure | PASS   |         2.97 |
+| mocked-provider-full-api-workflow                       | workflow         | PASS   |        48.63 |
 
 ## Limitations
 
