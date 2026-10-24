@@ -52,8 +52,10 @@ Task + jurisdiction + category + optional text document/source URLs
 4. **Uncertainty survives.** Unsupported steps remain explicitly unverifiable; missing evidence becomes an unresolved question rather than an invented requirement.
 5. **User edits matter.** Editing a model instruction downgrades it to `inferred`; adding a custom step also starts as inferred.
 6. **Dependencies are checked.** Unknown or cyclic step dependencies are removed and surfaced as warnings.
-7. **Sources are untrusted input.** Retrieval instructions embedded in pages are data, not system instructions. HTML scripts/styles are discarded.
-8. **No silent verification.** Source hashes and availability are refreshed only when the user presses “Recheck sources.”
+7. **Instructions must be grounded, not just quotes.** After quote validation, domain-agnostic checks reject a `supported` instruction whose currency amounts are missing from or contradicted by evidence (official-source amounts take precedence over secondary publishers), whose requirements are explicitly negated in a source, or whose requirements are conditional on a different application route than the one requested. Downgraded steps keep their citations and carry a precise note; no claim is silently rewritten.
+8. **Retrieval ranks official guidance first.** Both intake search queries are attempted when discovery is configured; candidate URLs are ranked official-domain first within the six-source budget, and a plan built without any official or user-supplied source carries a visible warning.
+9. **Sources are untrusted input.** Retrieval instructions embedded in pages are data, not system instructions. HTML scripts/styles are discarded.
+10. **No silent verification.** Source hashes and availability are refreshed only when the user presses “Recheck sources.”
 
 ## Provider controls
 

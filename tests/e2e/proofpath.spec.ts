@@ -32,6 +32,16 @@ test('sample evidence, completion and explicit save survive a reload', async ({ 
   ).toBeVisible();
 });
 
+test('runtime receipt is visible on the results page without expanding anything', async ({
+  page,
+}) => {
+  await openSample(page);
+  await expect(page.getByRole('heading', { name: 'Runtime receipt' })).toBeVisible();
+  await expect(page.getByText('Static sample — no provider response')).toBeVisible();
+  await expect(page.locator('.runtime-receipt-card')).toBeVisible();
+  await expect(page.locator('.runtime-receipt')).toHaveCount(0);
+});
+
 test('editing a supported factual step withdraws support and persists the edit', async ({
   page,
 }) => {

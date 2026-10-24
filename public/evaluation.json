@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ranAt": "2026-10-23T20:57:46.094Z",
+  "ranAt": "2026-10-24T08:02:00.056Z",
   "mode": "deterministic-fixtures",
   "liveModel": false,
   "model": null,
@@ -8,13 +8,13 @@
     "node": "v22.22.3"
   },
   "totals": {
-    "cases": 12,
-    "passed": 12,
+    "cases": 14,
+    "passed": 14,
     "failed": 0
   },
   "metrics": {
-    "citationCoverage": 0.26666666666666666,
-    "unsupportedClaimRate": 0.375,
+    "citationCoverage": 0.2857142857142857,
+    "unsupportedClaimRate": 0.5,
     "conflictsDetected": 1,
     "conflictsExpected": 1,
     "missingInformationHandled": 1,
@@ -23,10 +23,10 @@
     "endToEndCases": 1,
     "providerFailuresHandled": 3,
     "providerFailureCases": 3,
-    "medianFixtureLatencyMs": 0.68
+    "medianFixtureLatencyMs": 1.2
   },
   "definitions": {
-    "citationCoverage": "Final source-supported steps divided by all steps in the eight evidence fixtures.",
+    "citationCoverage": "Final source-supported steps divided by all steps in the deterministic evidence fixtures.",
     "unsupportedClaimRate": "Model-claimed supported steps rejected for lack of a valid citation, divided by all model-claimed supported steps in those fixtures.",
     "latency": "Median wall time of all local fixture/API cases; no live model latency is included."
   }

@@ -2150,14 +2150,12 @@ code {
 }
 
 .evidence-detail summary,
-.source-excerpt summary,
-.runtime-receipt summary {
+.source-excerpt summary {
   list-style: none;
 }
 
 .evidence-detail summary::-webkit-details-marker,
-.source-excerpt summary::-webkit-details-marker,
-.runtime-receipt summary::-webkit-details-marker {
+.source-excerpt summary::-webkit-details-marker {
   display: none;
 }
 
@@ -2182,14 +2180,12 @@ code {
 }
 
 .evidence-detail summary > svg:last-child,
-.source-excerpt summary > svg,
-.runtime-receipt summary > svg {
+.source-excerpt summary > svg {
   transition: transform 150ms ease;
 }
 
 .evidence-detail[open] summary > svg:last-child,
-.source-excerpt[open] summary > svg,
-.runtime-receipt[open] summary > svg {
+.source-excerpt[open] summary > svg {
   transform: rotate(180deg);
 }
 
@@ -2464,45 +2460,65 @@ code {
   background: var(--sage-soft);
 }
 
-.runtime-receipt {
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+.runtime-receipt-card {
+  margin: 18px 0 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-medium);
+  background: var(--surface);
 }
 
-.runtime-receipt summary {
-  min-height: 48px;
+.runtime-receipt-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  margin-bottom: 12px;
   color: var(--ink-soft);
+}
+
+.runtime-receipt-heading h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.runtime-receipt-heading .runtime-badge {
+  margin-left: auto;
+}
+
+.runtime-receipt-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.receipt-row {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 12px;
   font-size: 12px;
-  font-weight: 600;
-}
-
-.runtime-receipt dl {
-  display: grid;
-  gap: 10px;
-  margin: 2px 0 16px;
-}
-
-.runtime-receipt dl > div {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: 9px;
-  font-size: 11px;
   line-height: 1.5;
 }
 
-.runtime-receipt dt {
+.receipt-row dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
+  font-weight: 600;
 }
 
-.runtime-receipt dd {
+.receipt-row dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .receipt-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
 
 .export-note {

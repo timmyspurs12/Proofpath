@@ -10,6 +10,7 @@ import {
   type PlanStep,
   type RuntimeReceipt,
 } from '../../src/shared/schemas';
+import { findInstructionContradictions, routeContextFromInput } from './claim-checks';
 import type { RetrievedSource } from './retrieval';
 
 const ModelStepSchema = z
@@ -119,6 +120,7 @@ export interface EvidenceMetrics {
   validatedSupportedClaims: number;
   unsupportedModelClaims: number;
   invalidCitationCount: number;
+  contradictedClaimCount: number;
   citationCoverage: number;
   unsupportedClaimRate: number;
   validatedConflicts: number;
@@ -127,12 +129,14 @@ export interface EvidenceMetrics {
 
 export function validateEvidencePlan(options: ValidationOptions) {
   const warnings = [...(options.initialWarnings ?? [])];
+  const route = routeContextFromInput(options.input);
   const idMap = new Map(
     options.modelPlan.steps.map((step, index) => [step.id, `step-${index + 1}`]),
   );
   let invalidCitationCount = 0;
   let unsupportedModelClaims = 0;
   let modelSupportedClaims = 0;
+  let contradictedClaimCount = 0;
 
   const steps: PlanStep[] = options.modelPlan.steps.map((step, index) => {
     const validEvidence = step.evidence.filter((citation) => {
@@ -158,6 +162,25 @@ export function validateEvidencePlan(options: ValidationOptions) {
       notes.push(
         'A conflict must be validated against at least two cited sources before it is shown as conflicting.',
       );
+    }
+    // Exact-passage matching proves a quote exists; it cannot prove the
+    // instruction faithfully uses it. Reject supported claims whose concrete
+    // amounts or requirements contradict, or are not grounded in, evidence.
+    if (status === 'supported') {
+      const contradictions = findInstructionContradictions({
+        instruction: step.instruction,
+        sources: options.sources,
+        citedSourceIds: validEvidence.map((citation) => citation.sourceId),
+        route,
+      });
+      if (contradictions.length) {
+        contradictedClaimCount += 1;
+        unsupportedModelClaims += 1;
+        status = 'unverifiable';
+        for (const contradiction of contradictions) {
+          notes.push(contradiction.detail);
+        }
+      }
     }
     const verifiedDueDate =
       step.dueDate &&
@@ -267,6 +290,11 @@ export function validateEvidencePlan(options: ValidationOptions) {
       `${invalidCitationCount} invalid model citation(s) were removed by the evidence gate.`,
     );
   }
+  if (contradictedClaimCount) {
+    warnings.push(
+      `${contradictedClaimCount} source-supported claim(s) were downgraded because the instruction contradicts, or is not grounded in, retrieved evidence.`,
+    );
+  }
 
   const timestamp = (options.now?.() ?? new Date()).toISOString();
   const plan: Plan = {
@@ -297,6 +325,7 @@ export function validateEvidencePlan(options: ValidationOptions) {
     validatedSupportedClaims,
     unsupportedModelClaims,
     invalidCitationCount,
+    contradictedClaimCount,
     citationCoverage: parsed.steps.length ? validatedSupportedClaims / parsed.steps.length : 0,
     unsupportedClaimRate: modelSupportedClaims ? unsupportedModelClaims / modelSupportedClaims : 0,
     validatedConflicts: conflicts.length,

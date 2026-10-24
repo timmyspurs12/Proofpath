@@ -5,8 +5,11 @@ import {
   hashText,
   isPrivateAddress,
   makeUploadedSource,
+  rankCandidateUrls,
+  retrieveSources,
   verifySourceList,
 } from '../server/lib/retrieval';
+import type { TavilyClient } from '../server/lib/tavily';
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
@@ -127,5 +130,74 @@ describe('uploads and explicit rechecks', () => {
     ]);
     expect(check.status).toBe('changed');
     expect(check.currentHash).not.toBe(hashText('old'));
+  });
+});
+
+describe('candidate ranking and targeted discovery', () => {
+  it('ranks official-host URLs ahead of secondary publishers, preserving order within a tier', () => {
+    const ranked = rankCandidateUrls([
+      'https://blog.example.co.uk/one',
+      'https://www.gov.uk/official',
+      'https://agency.gov/guide',
+      'https://blog.example.co.uk/two',
+    ]);
+    expect(ranked).toEqual([
+      'https://www.gov.uk/official',
+      'https://agency.gov/guide',
+      'https://blog.example.co.uk/one',
+      'https://blog.example.co.uk/two',
+    ]);
+  });
+
+  it('deduplicates repeated URLs and never reorders malformed entries ahead', () => {
+    expect(rankCandidateUrls(['https://www.gov.uk/a', 'https://www.gov.uk/a'])).toEqual([
+      'https://www.gov.uk/a',
+    ]);
+    expect(rankCandidateUrls(['not-a-url', 'https://www.gov.uk/a'])).toEqual([
+      'https://www.gov.uk/a',
+      'not-a-url',
+    ]);
+  });
+
+  it('runs Tavily discovery for every intake query and warns when no official source is retrieved', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const host = String(url);
+      return new Response(
+        `Retrieved guidance text from ${host} with enough words to pass the minimum source length check.`,
+        { status: 200, headers: { 'content-type': 'text/plain' } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const queries: string[] = [];
+    const tavily = {
+      configured: true,
+      discover: vi.fn(async (query: string) => {
+        queries.push(query);
+        return query.includes('track')
+          ? { urls: ['https://8.8.8.8/tracking'], requestIds: ['req-track'], calls: 1 }
+          : { urls: ['https://9.9.9.9/basics'], requestIds: ['req-basics'], calls: 1 };
+      }),
+    };
+
+    const result = await retrieveSources({
+      directUrls: [],
+      searchQueries: ['renew passport online', 'track passport application'],
+      goal: 'Renew a passport online',
+      jurisdiction: 'United Kingdom',
+      document: null,
+      tavily: tavily as unknown as TavilyClient,
+    });
+
+    expect(tavily.discover).toHaveBeenCalledTimes(2);
+    expect(queries).toHaveLength(2);
+    expect(result.tavilyCalls).toBe(2);
+    expect(result.tavilyRequestIds).toEqual(['req-basics', 'req-track']);
+    expect(result.sources).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      result.warnings.some((warning) =>
+        warning.includes('No official-domain source was retrieved'),
+      ),
+    ).toBe(true);
   });
 });

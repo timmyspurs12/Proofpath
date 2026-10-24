@@ -344,6 +344,24 @@ interface RetrieveOptions {
   tavily: TavilyClient;
 }
 
+// Stable, domain-agnostic ranking: official-host candidates come first so the
+// six-source retrieval budget cannot be consumed by secondary publishers when
+// official guidance is available. Original discovery order is kept within a tier.
+export function rankCandidateUrls(urls: string[]): string[] {
+  const unique = urls.filter((url, index) => urls.indexOf(url) === index);
+  const tier = (url: string) => {
+    try {
+      return authorityForHostname(new URL(url).hostname) === 'official' ? 0 : 1;
+    } catch {
+      return 1;
+    }
+  };
+  return unique
+    .map((url, index) => ({ url, index, tier: tier(url) }))
+    .sort((a, b) => a.tier - b.tier || a.index - b.index)
+    .map((entry) => entry.url);
+}
+
 export async function retrieveSources(options: RetrieveOptions) {
   const warnings: string[] = [];
   const sources: RetrievedSource[] = [];
@@ -352,33 +370,44 @@ export async function retrieveSources(options: RetrieveOptions) {
   let tavilyCalls = 0;
   let tavilyRequestIds: string[] = [];
   let discoveredUrls: string[] = [];
-  if (options.tavily.configured && options.directUrls.length + sources.length < MAX_SOURCES) {
-    tavilyCalls = 1;
-    const query =
-      options.searchQueries[0] ?? `${options.goal} ${options.jurisdiction} official requirements`;
-    try {
-      const discovery = await options.tavily.discover(`${query} ${options.jurisdiction} official`);
-      discoveredUrls = discovery.urls;
-      tavilyRequestIds = discovery.requestIds;
-    } catch (error) {
-      warnings.push(
-        error instanceof AppError
-          ? error.message
-          : 'Tavily discovery failed; direct sources were used.',
-      );
+  const hasCapacity = () =>
+    options.directUrls.length + sources.length + discoveredUrls.length < MAX_SOURCES;
+  if (options.tavily.configured && hasCapacity()) {
+    // Intake may supply up to two targeted queries. Running each one gives
+    // unresolved instructions (for example submission or tracking guidance)
+    // a real retrieval attempt instead of silently using only the first query.
+    const queries = options.searchQueries.length
+      ? options.searchQueries.slice(0, 2)
+      : [`${options.goal} ${options.jurisdiction} official requirements`];
+    for (const query of queries) {
+      if (!hasCapacity()) break;
+      try {
+        const discovery = await options.tavily.discover(
+          `${query} ${options.jurisdiction} official`,
+        );
+        tavilyCalls += 1;
+        tavilyRequestIds.push(...discovery.requestIds);
+        for (const url of discovery.urls) {
+          if (!discoveredUrls.includes(url)) discoveredUrls.push(url);
+        }
+      } catch (error) {
+        warnings.push(
+          error instanceof AppError
+            ? error.message
+            : 'Tavily discovery failed; direct sources were used.',
+        );
+      }
     }
+    tavilyRequestIds = tavilyRequestIds.slice(0, 2);
   }
 
-  const candidates = [
-    ...options.directUrls.map((url) => ({ url, retrieval: 'direct' as const })),
-    ...discoveredUrls.map((url) => ({ url, retrieval: 'tavily' as const })),
-  ];
-  const unique = candidates.filter(
-    (candidate, index) => candidates.findIndex((other) => other.url === candidate.url) === index,
-  );
+  const rankedUrls = rankCandidateUrls([...options.directUrls, ...discoveredUrls]);
   const remaining = Math.max(0, MAX_SOURCES - sources.length);
-  const selected = unique.slice(0, remaining);
-  if (unique.length > remaining)
+  const selected = rankedUrls.slice(0, remaining).map((url) => ({
+    url,
+    retrieval: options.directUrls.includes(url) ? ('direct' as const) : ('tavily' as const),
+  }));
+  if (rankedUrls.length > remaining)
     warnings.push(
       'Only the first six sources were used; additional source URLs were not retrieved.',
     );
@@ -429,6 +458,16 @@ export async function retrieveSources(options: RetrieveOptions) {
   sources.forEach((entry, index) => {
     entry.source.id = `S${index + 1}`;
   });
+  if (
+    sources.length &&
+    !sources.some(
+      (entry) => entry.source.authority === 'official' || entry.source.authority === 'user',
+    )
+  ) {
+    warnings.push(
+      'No official-domain source was retrieved; secondary publisher guidance cannot override official requirements. Add an official source URL to establish supported requirements.',
+    );
+  }
   const directFetches = selected.length;
   logEvent('source_retrieval', {
     sources: sources.length,
