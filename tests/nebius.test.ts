@@ -103,6 +103,61 @@ describe('Nebius configuration and transport', () => {
     ).rejects.toMatchObject({ code: 'INVALID_MODEL_SCHEMA' });
   });
 
+  it('disables Nemotron reasoning via chat_template_kwargs in every request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(completion('{"ok":true}'));
+    await new NebiusClient(config(), fetchMock).complete(request, outputSchema);
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it('accepts a valid payload wrapped in a Nemotron think block (live regression)', async () => {
+    const wrapped =
+      '<think>Draft the intake JSON. The braces {"draft":true} here are not the answer.</think>' +
+      '\n{"ok":true}';
+    const fetchMock = vi.fn().mockResolvedValue(completion(wrapped));
+    const result = await new NebiusClient(config(), fetchMock).complete(request, outputSchema);
+    expect(result.output).toEqual({ ok: true });
+    expect(result.receipt).toMatchObject({
+      mode: 'live',
+      provider: 'nebius',
+      responseId: 'fixture-response',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts fenced and prose-wrapped JSON while keeping the same receipt', async () => {
+    const fenced = vi.fn().mockResolvedValue(completion('Here you go:\n```json\n{"ok":true}\n```'));
+    const fencedResult = await new NebiusClient(config(), fenced).complete(request, outputSchema);
+    expect(fencedResult.output).toEqual({ ok: true });
+    expect(fencedResult.receipt.responseId).toBe('fixture-response');
+
+    const prose = vi.fn().mockResolvedValue(completion('Plan: {"ok":true} — validated above.'));
+    const proseResult = await new NebiusClient(config(), prose).complete(request, outputSchema);
+    expect(proseResult.output).toEqual({ ok: true });
+  });
+
+  it('still fails closed when wrapper recovery yields schema-invalid JSON', async () => {
+    const wrapped = vi
+      .fn()
+      .mockResolvedValue(
+        completion('<think>reasoning</think>\n```json\n{"ok":"yes","extra":true}\n```'),
+      );
+    await expect(
+      new NebiusClient(config(), wrapped).complete(request, outputSchema),
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_SCHEMA' });
+  });
+
+  it('reports INVALID_MODEL_JSON without retrying when no JSON payload exists at all', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(completion('<think>some reasoning</think> I cannot help with that.'));
+    await expect(
+      new NebiusClient(config(), fetchMock).complete({ ...request, maxAttempts: 2 }, outputSchema),
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_JSON' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('contains aborts with a specific timeout error', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError'));
     await expect(
