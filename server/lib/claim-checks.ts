@@ -16,7 +16,82 @@ export interface CurrencyClaim {
 }
 
 export type ClaimContradictionKind =
-  'currency-mismatch' | 'ungrounded-currency' | 'negated-requirement' | 'conditional-route';
+  | 'currency-mismatch'
+  | 'ungrounded-currency'
+  | 'negated-requirement'
+  | 'conditional-route'
+  | 'fee-context-mismatch';
+
+// Generic scope qualifiers attached to a published fee. Vocabulary describes
+// transaction circumstances (where, which document, for how long, surcharges),
+// never a specific country or agency.
+export interface FeeQualifiers {
+  location: 'domestic' | 'abroad' | null;
+  bookletPages: number | null;
+  validityYears: number | null;
+  bankCharges: 'excluded' | 'included' | null;
+}
+
+const ABROAD_SCOPE =
+  /\b(?:abroad|overseas|diaspora|consular|consulate|embassy|high commission|diplomatic mission)\b/i;
+const DOMESTIC_SCOPE =
+  /\b(?:domestic|in-country|within (?:the )?country|inside (?:the )?country|home country)\b/i;
+const BOOKLET_SCOPE = /(\d{1,3})\s?-\s?page\b|\b(\d{1,3})\s?page booklet\b/i;
+// Domain-neutral validity phrasing only: the universality guard forbids
+// naming any document type in the core engine.
+const VALIDITY_SCOPE = /(\d{1,2})\s?-\s?year\b|\b(\d{1,2})\s?years? validity\b/i;
+const BANK_CHARGES = /bank (?:charges?|fees?)/i;
+
+export function extractFeeQualifiers(text: string): FeeQualifiers {
+  const location = ABROAD_SCOPE.test(text)
+    ? 'abroad'
+    : DOMESTIC_SCOPE.test(text)
+      ? 'domestic'
+      : null;
+  const bookletMatch = text.match(BOOKLET_SCOPE);
+  const bookletPages = bookletMatch ? Number(bookletMatch[1] ?? bookletMatch[2]) : null;
+  const validityMatch = text.match(VALIDITY_SCOPE);
+  const validityYears = validityMatch ? Number(validityMatch[1] ?? validityMatch[2]) : null;
+  let bankCharges: FeeQualifiers['bankCharges'] = null;
+  if (BANK_CHARGES.test(text)) {
+    if (/\bexclud\w+/.test(text)) bankCharges = 'excluded';
+    else if (/\binclud\w+|plus|in addition to\b/.test(text)) bankCharges = 'included';
+  }
+  return { location, bookletPages, validityYears, bankCharges };
+}
+
+function qualifierConflicts(claimed: FeeQualifiers, published: FeeQualifiers): string[] {
+  const conflicts: string[] = [];
+  if (claimed.location && published.location && claimed.location !== published.location) {
+    conflicts.push(
+      `the instruction is scoped to a ${claimed.location} application but the passage scopes this figure to an ${published.location} application`,
+    );
+  }
+  if (
+    claimed.bookletPages !== null &&
+    published.bookletPages !== null &&
+    claimed.bookletPages !== published.bookletPages
+  ) {
+    conflicts.push(
+      `the instruction assumes a ${claimed.bookletPages}-page booklet but the passage attaches this figure to a ${published.bookletPages}-page booklet`,
+    );
+  }
+  if (
+    claimed.validityYears !== null &&
+    published.validityYears !== null &&
+    claimed.validityYears !== published.validityYears
+  ) {
+    conflicts.push(
+      `the instruction assumes a ${claimed.validityYears}-year validity but the passage attaches this figure to a ${published.validityYears}-year validity`,
+    );
+  }
+  if (claimed.bankCharges === 'included' && published.bankCharges === 'excluded') {
+    conflicts.push(
+      'the instruction treats bank charges as included while the passage states the fee excludes bank charges',
+    );
+  }
+  return conflicts;
+}
 
 export interface ClaimContradiction {
   kind: ClaimContradictionKind;
@@ -316,22 +391,32 @@ export function findInstructionContradictions(
   // 1. Currency claims must match an amount that actually appears in evidence.
   const claims = extractCurrencyClaims(input.instruction);
   if (claims.length) {
-    const sourceAmounts = new Map<
-      CurrencyCode,
-      { amount: number; surface: string; sourceId: string; official: boolean }[]
-    >();
+    interface ObservedAmount {
+      amount: number;
+      surface: string;
+      sourceId: string;
+      official: boolean;
+      sentence: string;
+      qualifiers: FeeQualifiers;
+    }
+    const sourceAmounts = new Map<CurrencyCode, ObservedAmount[]>();
     for (const source of input.sources) {
-      for (const claim of extractCurrencyClaims(source.text)) {
-        const list = sourceAmounts.get(claim.currency) ?? [];
-        list.push({
-          amount: claim.amount,
-          surface: claim.surface,
-          sourceId: source.source.id,
-          official: source.source.authority === 'official',
-        });
-        sourceAmounts.set(claim.currency, list);
+      for (const sentence of splitSentences(source.text)) {
+        for (const claim of extractCurrencyClaims(sentence)) {
+          const list = sourceAmounts.get(claim.currency) ?? [];
+          list.push({
+            amount: claim.amount,
+            surface: claim.surface,
+            sourceId: source.source.id,
+            official: source.source.authority === 'official',
+            sentence,
+            qualifiers: extractFeeQualifiers(sentence),
+          });
+          sourceAmounts.set(claim.currency, list);
+        }
       }
     }
+    const claimedQualifiers = extractFeeQualifiers(input.instruction);
     for (const claim of claims) {
       const observed = sourceAmounts.get(claim.currency) ?? [];
       if (!observed.length) {
@@ -356,6 +441,26 @@ export function findInstructionContradictions(
           'currency-mismatch',
           detail,
           reference.map((entry) => entry.sourceId),
+        );
+        continue;
+      }
+      // Same figure, wrong scope: an amount can be real yet inapplicable.
+      // Reject only when every passage publishing that figure conflicts with
+      // a qualifier the instruction itself states; one compatible passage is
+      // enough to ground it.
+      const incompatible = matching.filter(
+        (entry) => qualifierConflicts(claimedQualifiers, entry.qualifiers).length > 0,
+      );
+      if (incompatible.length === matching.length) {
+        const reasons = [
+          ...new Set(
+            matching.flatMap((entry) => qualifierConflicts(claimedQualifiers, entry.qualifiers)),
+          ),
+        ];
+        push(
+          'fee-context-mismatch',
+          `Support withdrawn: the ${claim.surface} figure appears in evidence but its scope does not match the instruction — ${reasons.join('; ')}.`,
+          [...new Set(incompatible.map((entry) => entry.sourceId))],
         );
       }
     }

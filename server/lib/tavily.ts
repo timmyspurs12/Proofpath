@@ -13,8 +13,14 @@ const SearchResponseSchema = z.object({
   ),
 });
 
+export interface TavilyResult {
+  url: string;
+  title: string | null;
+}
+
 export interface TavilyDiscovery {
   urls: string[];
+  results: TavilyResult[];
   requestIds: string[];
   calls: number;
 }
@@ -30,7 +36,7 @@ export class TavilyClient {
   }
 
   async discover(query: string): Promise<TavilyDiscovery> {
-    if (!this.config.tavilyApiKey) return { urls: [], requestIds: [], calls: 0 };
+    if (!this.config.tavilyApiKey) return { urls: [], results: [], requestIds: [], calls: 0 };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
@@ -74,8 +80,13 @@ export class TavilyClient {
         request_id: parsed.data.request_id ?? null,
         results: parsed.data.results.length,
       });
+      const results: TavilyResult[] = parsed.data.results.map((result) => ({
+        url: result.url,
+        title: result.title?.trim() ? result.title!.trim() : null,
+      }));
       return {
-        urls: parsed.data.results.map((result) => result.url),
+        urls: results.map((result) => result.url),
+        results,
         requestIds,
         calls: 1,
       };
