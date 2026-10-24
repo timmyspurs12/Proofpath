@@ -10,7 +10,11 @@ import {
   type PlanStep,
   type RuntimeReceipt,
 } from '../../src/shared/schemas';
-import { findInstructionContradictions, routeContextFromInput } from './claim-checks';
+import {
+  findInstructionContradictions,
+  jurisdictionCoverage,
+  routeContextFromInput,
+} from './claim-checks';
 import type { RetrievedSource } from './retrieval';
 
 const ModelStepSchema = z
@@ -293,6 +297,15 @@ export function validateEvidencePlan(options: ValidationOptions) {
   if (contradictedClaimCount) {
     warnings.push(
       `${contradictedClaimCount} source-supported claim(s) were downgraded because the instruction contradicts, or is not grounded in, retrieved evidence.`,
+    );
+  }
+  const requestedJurisdiction = options.input.jurisdiction.trim();
+  if (
+    requestedJurisdiction &&
+    !jurisdictionCoverage(requestedJurisdiction, options.sources).mentioned
+  ) {
+    warnings.push(
+      `None of the retrieved sources mention the requested jurisdiction “${requestedJurisdiction}”. Their requirements may not apply there; verify jurisdictional applicability before acting.`,
     );
   }
 

@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { createApp } from '../server/app';
 import { DEFAULT_NEBIUS_MODEL, type AppConfig } from '../server/config';
 import { validateEvidencePlan, type EvidenceMetrics, type ModelPlan } from '../server/lib/evidence';
+import { requiredClarifications } from '../server/lib/intake';
 import { NebiusClient } from '../server/lib/nebius';
-import type { RetrievedSource } from '../server/lib/retrieval';
+import { retrieveSources, type RetrievedSource } from '../server/lib/retrieval';
 import { TavilyClient } from '../server/lib/tavily';
 import { PlanResponseSchema } from '../src/shared/schemas';
 import { fixtureRuntime, makeInput, makeModelPlan, makeSource } from '../tests/fixtures';
@@ -17,10 +18,27 @@ import {
   makePassportInput,
   makePassportSources,
 } from '../tests/fixtures/passport-live-export';
+import {
+  crossJurisdictionReceipt,
+  makeCanadaInput,
+  makeCanadaModelPlan,
+  makeCanadaSources,
+  makeConsularInput,
+  makeConsularModelPlan,
+  makeFranceInput,
+  makeFranceModelPlan,
+  makeFranceSources,
+  makeNigeriaInput,
+  makeNigeriaModelPlan,
+  makeNigeriaSources,
+  makeWeakInput,
+  makeWeakModelPlan,
+  makeWeakSources,
+} from '../tests/fixtures/cross-jurisdiction';
 
 interface CaseResult {
   id: string;
-  category: 'evidence' | 'workflow' | 'provider-failure';
+  category: 'evidence' | 'workflow' | 'provider-failure' | 'universality';
   passed: boolean;
   latencyMs: number;
   detail: string;
@@ -205,6 +223,238 @@ await runCase('dependency-cycle-removal', 'evidence', () => {
   assert.ok(plan.steps.every((step) => step.dependsOn.length === 0));
 });
 
+// --- Cross-jurisdiction universality suite (synthetic labelled fixtures) ---
+// Required scenario coverage: (1) Nigeria domestic passport, (2) UK passport is
+// covered by official-contradiction-downgrades-fee and route-specific-
+// requirement-cannot-mix-routes above, (3) third-country immigration,
+// (4) non-passport task, (5) missing-detail clarification, (6) official vs
+// secondary contradiction, (7) inaccessible official source, (8) inadequate
+// evidence, (9) route/conditional requirements, (10) fees and deadlines.
+
+function crossValidate(
+  model: ModelPlan,
+  sources: RetrievedSource[],
+  input: ReturnType<typeof makeNigeriaInput>,
+  id: string,
+  initialWarnings: string[] = [],
+) {
+  const result = validateEvidencePlan({
+    modelPlan: model,
+    sources,
+    input,
+    runtime: crossJurisdictionReceipt,
+    id,
+    now: () => new Date('2026-10-24T12:00:00.000Z'),
+    initialWarnings,
+  });
+  evidenceRuns.push(result.metrics);
+  return result.plan;
+}
+
+await runCase('xjur-nigeria-domestic-passport-ngn-and-routes', 'universality', () => {
+  const plan = crossValidate(
+    makeNigeriaModelPlan(),
+    makeNigeriaSources(),
+    makeNigeriaInput(),
+    'xjur-nigeria-plan',
+  );
+  const fee = plan.steps.find((step) => step.title === 'Pay the passport application fee')!;
+  const post = plan.steps.find((step) => step.title === 'Send paperwork by post')!;
+  const biometric = plan.steps.find((step) => step.title === 'Book biometric capture')!;
+  assert.equal(fee.status, 'unverifiable');
+  assert.ok(fee.notes.join(' ').includes('NGN 25,000'));
+  assert.equal(post.status, 'unverifiable');
+  assert.equal(biometric.status, 'supported');
+  assert.equal(plan.unresolvedQuestions.length, 1);
+});
+
+await runCase('xjur-canada-study-permit-third-country-cad', 'universality', () => {
+  const plan = crossValidate(
+    makeCanadaModelPlan(),
+    makeCanadaSources(),
+    makeCanadaInput(),
+    'xjur-canada-plan',
+  );
+  const fee = plan.steps.find((step) => step.title === 'Pay the study permit fee')!;
+  const biometrics = plan.steps.find((step) => step.title === 'Pay biometrics if required')!;
+  assert.equal(fee.status, 'unverifiable');
+  assert.ok(fee.notes.join(' ').includes('CAD 150'));
+  assert.equal(biometrics.status, 'supported');
+});
+
+await runCase('xjur-france-business-registration-non-passport', 'universality', () => {
+  const plan = crossValidate(
+    makeFranceModelPlan(),
+    makeFranceSources(),
+    makeFranceInput(),
+    'xjur-france-plan',
+  );
+  const fee = plan.steps.find((step) => step.title === 'Pay a registration fee')!;
+  const paper = plan.steps.find((step) => step.title === 'Mail paper forms')!;
+  const portal = plan.steps.find(
+    (step) => step.title === 'Register online via the formalites portal',
+  )!;
+  assert.equal(fee.status, 'unverifiable');
+  assert.equal(paper.status, 'unverifiable');
+  assert.equal(portal.status, 'supported');
+  assert.equal(portal.dueDate, null);
+});
+
+await runCase('xjur-consular-route-protected-abroad', 'universality', () => {
+  const plan = crossValidate(
+    makeConsularModelPlan(),
+    makeNigeriaSources(),
+    makeConsularInput(),
+    'xjur-consular',
+  );
+  const onlineOnly = plan.steps.find((step) => step.title === 'Renew fully online')!;
+  const embassy = plan.steps.find((step) => step.title === 'Attend the embassy in person')!;
+  assert.equal(onlineOnly.status, 'unverifiable');
+  assert.equal(embassy.status, 'supported');
+});
+
+await runCase('xjur-weak-evidence-stays-honest', 'universality', () => {
+  const plan = crossValidate(makeWeakModelPlan(), makeWeakSources(), makeWeakInput(), 'xjur-weak', [
+    'No official-domain source was retrieved; secondary publisher guidance cannot override official requirements. Add an official source URL to establish supported requirements.',
+  ]);
+  assert.ok(plan.steps.every((step) => step.status !== 'supported'));
+  assert.ok(plan.warnings.some((warning) => warning.includes('No official-domain source')));
+  assert.ok(plan.warnings.some((warning) => warning.includes('jurisdiction')));
+  assert.equal(plan.unresolvedQuestions.length, 1);
+});
+
+await runCase('xjur-missing-jurisdiction-triggers-clarification', 'universality', () => {
+  const questions = requiredClarifications({
+    task: 'Apply for a residence permit for my family.',
+    jurisdiction: '',
+    category: 'Visa & immigration',
+    details: '',
+    sourceUrls: [],
+    document: null,
+  });
+  assert.ok(questions.some((question) => question.id === 'clarify-jurisdiction'));
+  assert.ok(questions.some((question) => question.id === 'clarify-route'));
+});
+
+await runCase('xjur-specified-request-needs-no-clarification', 'universality', () => {
+  const questions = requiredClarifications({
+    task: 'Renew my passport in person at the consulate while living abroad.',
+    jurisdiction: 'Brazil',
+    category: 'Travel & identity documents',
+    details: 'Consular route, outside the country.',
+    sourceUrls: [],
+    document: null,
+  });
+  assert.equal(questions.length, 0);
+});
+
+await runCase(
+  'xjur-inaccessible-official-source-backfills-alternative',
+  'universality',
+  async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).includes('8.8.8.8/broken')) {
+        return new Response('fault', { status: 500, headers: { 'content-type': 'text/plain' } });
+      }
+      return new Response(
+        `Retrieved guidance text from ${String(url)} with enough words to pass the source length check.`,
+        { status: 200, headers: { 'content-type': 'text/plain' } },
+      );
+    }) as typeof fetch;
+    try {
+      const tavily = {
+        configured: true,
+        discover: async () => ({
+          urls: [
+            'https://9.9.9.9/one',
+            'https://9.9.9.9/two',
+            'https://9.9.9.9/three',
+            'https://9.9.9.9/four',
+            'https://9.9.9.9/five',
+            'https://9.9.9.9/six',
+          ],
+          requestIds: ['eval-backfill'],
+          calls: 1,
+        }),
+      };
+      const result = await retrieveSources({
+        directUrls: ['https://8.8.8.8/broken'],
+        searchQueries: ['permit guidance'],
+        goal: 'Complete a permit application',
+        jurisdiction: 'Kenya',
+        document: null,
+        tavily: tavily as unknown as TavilyClient,
+      });
+      assert.equal(result.sources.length, 6);
+      assert.ok(result.warnings.some((warning) => warning.includes('8.8.8.8')));
+      assert.equal(result.directFetches, 7);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
+await runCase('xjur-no-sources-fails-closed-without-invention', 'universality', async () => {
+  const tavily = {
+    configured: false,
+    discover: async () => ({ urls: [], requestIds: [], calls: 0 }),
+  };
+  await assert.rejects(
+    retrieveSources({
+      directUrls: [],
+      searchQueries: [],
+      goal: 'Complete an unknown administrative process',
+      jurisdiction: 'Kenya',
+      document: null,
+      tavily: tavily as unknown as TavilyClient,
+    }),
+    (error: unknown) => (error as { code?: string }).code === 'SOURCES_REQUIRED',
+  );
+});
+
+await runCase('xjur-engine-contains-no-country-specific-rules', 'universality', async () => {
+  const engineSources = await Promise.all(
+    [
+      new URL('../server/lib/claim-checks.ts', import.meta.url),
+      new URL('../server/lib/evidence.ts', import.meta.url),
+      new URL('../server/lib/intake.ts', import.meta.url),
+    ].map((url) => readFile(url, 'utf8')),
+  );
+  const engineText = engineSources.join('\n');
+  for (const country of [
+    'Nigeria',
+    'Kenya',
+    'Canada',
+    'France',
+    'Brazil',
+    'United Kingdom',
+    'passport',
+    'Naira',
+  ]) {
+    assert.ok(
+      !engineText.includes(country),
+      `Core engine must not hardcode ${country}; country facts belong in retrieved evidence.`,
+    );
+  }
+});
+
+await runCase('xjur-stale-source-and-unsupported-deadline-warn', 'universality', () => {
+  const sources = [
+    makeSource(
+      'S1',
+      'Applicants must renew online. The fee is £102 and this guidance is long enough to validate.',
+      'https://service.gov.example/guide',
+      { authority: 'official', stale: true, publishedAt: '2024-01-01' },
+    ),
+  ];
+  const model = makeModelPlan();
+  model.steps[0].dueDate = '1 March 2027';
+  const plan = validate(model, sources);
+  assert.equal(plan.steps[0].dueDate, null);
+  assert.ok(plan.warnings.some((warning) => warning.includes('18 months old')));
+});
+
 function config(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     nebiusApiKey: 'evaluation-fixture-key',
@@ -319,6 +569,7 @@ const missingInformationHandled = cases.find(
   : 0;
 const workflowCases = cases.filter((entry) => entry.category === 'workflow');
 const failureCases = cases.filter((entry) => entry.category === 'provider-failure');
+const universalityCases = cases.filter((entry) => entry.category === 'universality');
 const sortedLatencies = cases.map((entry) => entry.latencyMs).sort((a, b) => a - b);
 const middle = Math.floor(sortedLatencies.length / 2);
 const medianFixtureLatencyMs =
@@ -348,6 +599,8 @@ const artifact = {
     endToEndCases: workflowCases.length,
     providerFailuresHandled: failureCases.filter((entry) => entry.passed).length,
     providerFailureCases: failureCases.length,
+    universalityCasesPassed: universalityCases.filter((entry) => entry.passed).length,
+    universalityCases: universalityCases.length,
     medianFixtureLatencyMs,
   },
   definitions: {
@@ -359,7 +612,7 @@ const artifact = {
   },
 };
 
-const report = `# ProofPath evaluation report\n\nGenerated: ${artifact.ranAt}\n\n**Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**\n\n## Results\n\n- Cases: **${passed}/${cases.length} passed** (${cases.length - passed} failed)\n- Final citation coverage: **${(artifact.metrics.citationCoverage * 100).toFixed(1)}%**\n- Raw supported claims rejected: **${(artifact.metrics.unsupportedClaimRate * 100).toFixed(1)}%**\n- Expected genuine conflicts detected: **${conflictsDetected}/${genuineConflictsExpected}**\n- Missing-information cases handled: **${missingInformationHandled}/${missingInformationCases}**\n- Mocked-provider end-to-end API workflows: **${artifact.metrics.endToEndCompleted}/${artifact.metrics.endToEndCases}**\n- Provider failure cases contained: **${artifact.metrics.providerFailuresHandled}/${artifact.metrics.providerFailureCases}**\n- Median local fixture/API latency: **${medianFixtureLatencyMs} ms** (not model latency)\n\n## Metric definitions\n\n- **Citation coverage:** final source-supported steps / all steps in the deterministic evidence fixtures. It is a small fixture result, not an accuracy estimate for real tasks.\n- **Unsupported-claim rate:** model-claimed supported steps rejected for lack of a valid citation / all model-claimed supported steps in those fixtures.\n- **Conflict detection:** a conflict survives only with exact passages from at least two sources. A separate fabricated-conflict case must be rejected.\n- **Missing information:** an unsupported step must become unverifiable while its unresolved question remains visible.\n- **End-to-end completion:** an uploaded source traverses the real Express route, retrieval normalization, a mocked Nebius transport, schema parsing, and evidence gate. It does not test live model behavior.\n- **Provider failure handling:** missing credentials, authentication failure, and invalid structured output must return typed errors rather than fabricated plans.\n\n## Case ledger\n\n| Case | Category | Result | Latency (ms) |\n| --- | --- | --- | ---: |\n${cases.map((entry) => `| ${entry.id} | ${entry.category} | ${entry.passed ? 'PASS' : 'FAIL'} | ${entry.latencyMs} |`).join('\n')}\n\n## Limitations\n\nThis is a deliberately small adversarial suite, not a representative benchmark. Exact-quote matching does not prove semantic entailment, source authority, freshness, or jurisdictional applicability. Live model latency, quality, Nebius availability, Tavily discovery, and production behavior require separate genuine runtime verification.\n`;
+const report = `# ProofPath evaluation report\n\nGenerated: ${artifact.ranAt}\n\n**Mode: deterministic fixtures and a mocked provider boundary. No live Nemotron, Nebius, or Tavily quality claim is made.**\n\n## Results\n\n- Cases: **${passed}/${cases.length} passed** (${cases.length - passed} failed)\n- Final citation coverage: **${(artifact.metrics.citationCoverage * 100).toFixed(1)}%**\n- Raw supported claims rejected: **${(artifact.metrics.unsupportedClaimRate * 100).toFixed(1)}%**\n- Expected genuine conflicts detected: **${conflictsDetected}/${genuineConflictsExpected}**\n- Missing-information cases handled: **${missingInformationHandled}/${missingInformationCases}**\n- Mocked-provider end-to-end API workflows: **${artifact.metrics.endToEndCompleted}/${artifact.metrics.endToEndCases}**\n- Provider failure cases contained: **${artifact.metrics.providerFailuresHandled}/${artifact.metrics.providerFailureCases}**\n- Cross-jurisdiction universality cases: **${artifact.metrics.universalityCasesPassed}/${artifact.metrics.universalityCases}**\n- Median local fixture/API latency: **${medianFixtureLatencyMs} ms** (not model latency)\n\n## Cross-jurisdiction universality scenarios\n\nSynthetic, clearly-labelled fixtures exercise one generic engine with no country-specific branches:\n\n1. Nigerian domestic adult passport renewal (NGN fees, in-person biometrics) — \`xjur-nigeria-domestic-passport-ngn-and-routes\`\n2. UK adult passport renewal — \`official-contradiction-downgrades-fee\` and \`route-specific-requirement-cannot-mix-routes\`\n3. Third-country immigration process (Canada study permit, CAD) — \`xjur-canada-study-permit-third-country-cad\`\n4. Non-passport task (French business registration, EUR) — \`xjur-france-business-registration-non-passport\`\n5. Missing jurisdiction and route require clarification — \`xjur-missing-jurisdiction-triggers-clarification\` and \`xjur-specified-request-needs-no-clarification\`\n6. Official source contradicts a secondary source — the Nigeria, Canada and UK fee cases\n7. Inaccessible official source triggers alternative retrieval — \`xjur-inaccessible-official-source-backfills-alternative\`\n8. No adequate evidence stays honest — \`xjur-weak-evidence-stays-honest\` and \`xjur-no-sources-fails-closed-without-invention\`\n9. Different routes and conditional requirements — \`xjur-consular-route-protected-abroad\` plus the UK route-mixing case\n10. Fees, deadlines and stale sources — the currency cases plus \`xjur-stale-source-and-unsupported-deadline-warn\`\n\nThe engine guard \`xjur-engine-contains-no-country-specific-rules\` asserts the core validation modules contain no country, domain, or currency-name hardcoding.\n\n## Metric definitions\n\n- **Citation coverage:** final source-supported steps / all steps in the deterministic evidence fixtures. It is a small fixture result, not an accuracy estimate for real tasks.\n- **Unsupported-claim rate:** model-claimed supported steps rejected for lack of a valid citation / all model-claimed supported steps in those fixtures.\n- **Conflict detection:** a conflict survives only with exact passages from at least two sources. A separate fabricated-conflict case must be rejected.\n- **Missing information:** an unsupported step must become unverifiable while its unresolved question remains visible.\n- **End-to-end completion:** an uploaded source traverses the real Express route, retrieval normalization, a mocked Nebius transport, schema parsing, and evidence gate. It does not test live model behavior.\n- **Provider failure handling:** missing credentials, authentication failure, and invalid structured output must return typed errors rather than fabricated plans.\n\n## Case ledger\n\n| Case | Category | Result | Latency (ms) |\n| --- | --- | --- | ---: |\n${cases.map((entry) => `| ${entry.id} | ${entry.category} | ${entry.passed ? 'PASS' : 'FAIL'} | ${entry.latencyMs} |`).join('\n')}\n\n## Limitations\n\nThis is a deliberately small adversarial suite, not a representative benchmark. Exact-quote matching does not prove semantic entailment, source authority, freshness, or jurisdictional applicability. Live model latency, quality, Nebius availability, Tavily discovery, and production behavior require separate genuine runtime verification.\n`;
 
 await mkdir(new URL('../docs/evaluation/', import.meta.url), { recursive: true });
 await mkdir(new URL('../public/', import.meta.url), { recursive: true });

@@ -6,6 +6,16 @@ ProofPath turns a user-defined administrative task plus retrieved official instr
 
 Track: **Best Apps and Agents**.
 
+## Universality model
+
+ProofPath is jurisdiction- and category-agnostic by construction:
+
+- **No country or category allowlists.** Schemas accept free-text jurisdiction and category fields, both optional; the UI offers editable examples, never a fixed supported list. Country-specific facts must come from retrieved evidence, never from engine branches (an evaluation case asserts the core modules contain no country, domain, or currency-name hardcoding).
+- **Ask rather than assume.** A deterministic intake guard (`server/lib/intake.ts`) requires a clarification question when the jurisdiction is missing, or when an application-type request names no route (online, paper/post, in-person, consular) and supplies no evidence anchor. Model-generated questions are merged after the deterministic ones and de-duplicated.
+- **Dynamic authority discovery.** Official-host recognition uses generic registry labels (`gov`, `gouv`, `go`, `gc`, `govt`, `europa.eu`, `edu`, `int`) rather than a country table, so an unconfigured jurisdiction is recognized from hostname structure. Unknown hosts stay `secondary` and degrade honestly via the no-official-source warning.
+- **Generic evidence gates.** Currency grounding covers a broad ISO 4217 registry plus local symbols; route logic understands online, paper, in-person, and consular transactions plus domestic-vs-abroad location; a jurisdiction-coverage warning fires when no retrieved source mentions the requested place. All gates are text/structure checks that work for any process.
+- **Honest coverage.** Unresearchable requests fail closed with typed errors (`SOURCES_REQUIRED`, `NO_USABLE_SOURCES`) or produce unverifiable steps and unresolved questions — never invented requirements, fees, or sources.
+
 ## Stack
 
 - **Client:** React 19, TypeScript, Vite, plain CSS, Lucide icons.
@@ -17,13 +27,14 @@ Track: **Best Apps and Agents**.
 ## Runtime flow
 
 ```text
-Task + jurisdiction + category + optional text document/source URLs
+Task + optional free-text jurisdiction/category + optional document/source URLs
                          │
                          ▼
              POST /api/intake
-       Nemotron Nano via Nebius Token Factory
+       deterministic clarification guard (provider-independent)
+       + Nemotron Nano via Nebius Token Factory
       goal + essential questions + retrieval queries
-                         │ answers
+                         │ answers (missing jurisdiction/route asked, never guessed)
                          ▼
         Tavily search (if configured) + direct URLs
               bounded, safe HTTP retrieval
@@ -52,10 +63,11 @@ Task + jurisdiction + category + optional text document/source URLs
 4. **Uncertainty survives.** Unsupported steps remain explicitly unverifiable; missing evidence becomes an unresolved question rather than an invented requirement.
 5. **User edits matter.** Editing a model instruction downgrades it to `inferred`; adding a custom step also starts as inferred.
 6. **Dependencies are checked.** Unknown or cyclic step dependencies are removed and surfaced as warnings.
-7. **Instructions must be grounded, not just quotes.** After quote validation, domain-agnostic checks reject a `supported` instruction whose currency amounts are missing from or contradicted by evidence (official-source amounts take precedence over secondary publishers), whose requirements are explicitly negated in a source, or whose requirements are conditional on a different application route than the one requested. Downgraded steps keep their citations and carry a precise note; no claim is silently rewritten.
-8. **Retrieval ranks official guidance first.** Both intake search queries are attempted when discovery is configured; candidate URLs are ranked official-domain first within the six-source budget, and a plan built without any official or user-supplied source carries a visible warning.
+7. **Instructions must be grounded, not just quotes.** After quote validation, domain-agnostic checks reject a `supported` instruction whose currency amounts (any supported ISO code or symbol) are missing from or contradicted by evidence (official-source amounts take precedence over secondary publishers), whose requirements are explicitly negated in the same clause of a source, or whose requirements are conditional on a different application route or applicant location than the one requested. Negation is evaluated per clause and is route- and money-scoped to avoid cross-context false positives. Downgraded steps keep their citations and carry a precise note; no claim is silently rewritten.
+8. **Retrieval ranks official guidance first and backfills failure.** Both intake search queries are attempted when discovery is configured (a blank jurisdiction simply omits the jurisdiction suffix); candidate URLs are ranked official-domain first within the six-source budget. A failed fetch is replaced by the next-ranked queued candidate (at most two bounded backfill attempts), and a plan built without any official or user-supplied source carries a visible warning, as does a plan whose sources never mention the requested jurisdiction.
 9. **Sources are untrusted input.** Retrieval instructions embedded in pages are data, not system instructions. HTML scripts/styles are discarded.
 10. **No silent verification.** Source hashes and availability are refreshed only when the user presses “Recheck sources.”
+11. **Jurisdictional applicability is evidence, not inference.** Rules, amounts, and deadlines from another country, route, applicant category, or date cannot be transferred; the prompt requires same-jurisdiction passages for supported claims, and the deterministic coverage warning surfaces sources that never name the requested place.
 
 ## Provider controls
 

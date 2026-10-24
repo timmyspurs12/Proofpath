@@ -21,10 +21,13 @@ export const DocumentInputSchema = z.object({
 });
 export type DocumentInput = z.infer<typeof DocumentInputSchema>;
 
+// Jurisdiction and category are free text and may be blank: a missing
+// jurisdiction is a clarification trigger, never a reason to invent one.
+// There is intentionally no enum or country allowlist anywhere in the schema.
 export const TaskInputSchema = z.object({
   task: z.string().trim().min(8).max(4_000),
-  jurisdiction: z.string().trim().min(2).max(100),
-  category: z.string().trim().min(2).max(80),
+  jurisdiction: z.string().trim().max(100).default(''),
+  category: z.string().trim().max(80).default(''),
   details: z.string().trim().max(8_000).default(''),
   sourceUrls: z.array(HttpUrlSchema).max(6).default([]),
   document: DocumentInputSchema.nullable().default(null),
@@ -146,8 +149,8 @@ export const PlanSchema = z.object({
   id: z.string().min(8).max(100),
   title: z.string().trim().min(3).max(240),
   goal: z.string().trim().min(5).max(500),
-  jurisdiction: z.string().trim().min(2).max(100),
-  category: z.string().trim().min(2).max(80),
+  jurisdiction: z.string().trim().max(100),
+  category: z.string().trim().max(80),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
   sources: z.array(SourceSchema).max(6),

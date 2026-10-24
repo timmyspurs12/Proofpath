@@ -220,6 +220,38 @@ test('task outlines prefill editable fields without retaining unrelated sources'
   ).toHaveCount(0);
 });
 
+test('any jurisdiction is accepted as free text; no fixed country list is presented', async ({
+  page,
+  request,
+}) => {
+  const health = await (await request.get('/api/health')).json();
+  test.skip(
+    health.liveInferenceConfigured,
+    'This negative test requires an unconfigured server; no paid live call is made.',
+  );
+  await page.goto('/');
+
+  const jurisdiction = page.getByLabel('Jurisdiction');
+  expect(await jurisdiction.getAttribute('list')).toBeNull();
+  await expect(page.locator('#jurisdiction-options')).toHaveCount(0);
+
+  // Category remains free text with an examples-only datalist.
+  const category = page.getByLabel('Task category');
+  expect(await category.getAttribute('list')).toBe('category-options');
+
+  await page.getByLabel('Your task').fill('Register a small import business and get a tax number.');
+  await jurisdiction.fill('Brazil');
+  await category.fill('Tax & administrative obligations');
+  await page
+    .getByLabel('Official source URLs')
+    .fill('https://www.gov.br/receitafederal/pt-br/guides/example');
+  await page.getByRole('button', { name: 'Find my next steps' }).click();
+
+  // The arbitrary jurisdiction passes every client check; the only blocker is
+  // the honestly-reported missing live provider, never a country allowlist.
+  await expect(page.getByRole('alert')).toContainText('Live Nebius inference is not configured');
+});
+
 test('all routes avoid horizontal overflow at the six target widths', async ({ page }) => {
   for (const width of [1440, 1280, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });

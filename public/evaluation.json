@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ranAt": "2026-10-24T08:02:00.056Z",
+  "ranAt": "2026-10-24T10:45:39.135Z",
   "mode": "deterministic-fixtures",
   "liveModel": false,
   "model": null,
@@ -8,13 +8,13 @@
     "node": "v22.22.3"
   },
   "totals": {
-    "cases": 14,
-    "passed": 14,
+    "cases": 25,
+    "passed": 25,
     "failed": 0
   },
   "metrics": {
-    "citationCoverage": 0.2857142857142857,
-    "unsupportedClaimRate": 0.5,
+    "citationCoverage": 0.29411764705882354,
+    "unsupportedClaimRate": 0.5769230769230769,
     "conflictsDetected": 1,
     "conflictsExpected": 1,
     "missingInformationHandled": 1,
@@ -23,7 +23,9 @@
     "endToEndCases": 1,
     "providerFailuresHandled": 3,
     "providerFailureCases": 3,
-    "medianFixtureLatencyMs": 1.2
+    "universalityCasesPassed": 11,
+    "universalityCases": 11,
+    "medianFixtureLatencyMs": 0.71
   },
   "definitions": {
     "citationCoverage": "Final source-supported steps divided by all steps in the deterministic evidence fixtures.",

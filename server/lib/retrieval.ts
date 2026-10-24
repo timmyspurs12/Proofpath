@@ -166,17 +166,28 @@ async function readBoundedBody(response: Response) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+// Generic registry-level labels used by governments worldwide. These are
+// structural hostname patterns, not a country list: any jurisdiction whose
+// official host uses one of these labels is recognized without a code change
+// (gov.uk, gouv.fr, go.jp, gc.ca, govt.nz, europa.eu, ...). Hosts that match
+// no pattern stay "secondary" and the pipeline warns when no official or
+// user-supplied source is present, so an unconfigured jurisdiction degrades
+// honestly instead of being mislabelled.
+const OFFICIAL_HOST_PATTERNS = [
+  /(^|\.)gov$/,
+  /(^|\.)gov\.[a-z]{2,3}$/,
+  /(^|\.)gouv\.[a-z]{2,3}$/,
+  /(^|\.)go\.[a-z]{2,3}$/,
+  /(^|\.)gc\.[a-z]{2,3}$/,
+  /(^|\.)govt\.[a-z]{2,3}$/,
+  /(^|\.)edu$/,
+  /(^|\.)int$/,
+  /(^|\.)europa\.eu$/,
+];
+
 export function authorityForHostname(hostname: string): Source['authority'] {
   const host = hostname.toLowerCase().replace(/\.$/, '');
-  if (
-    host === 'gov' ||
-    host.endsWith('.gov') ||
-    /(^|\.)gov\.[a-z]{2,3}$/.test(host) ||
-    host === 'edu' ||
-    host.endsWith('.edu') ||
-    host === 'int' ||
-    host.endsWith('.int')
-  ) {
+  if (OFFICIAL_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
     return 'official';
   }
   return 'secondary';
@@ -376,15 +387,20 @@ export async function retrieveSources(options: RetrieveOptions) {
     // Intake may supply up to two targeted queries. Running each one gives
     // unresolved instructions (for example submission or tracking guidance)
     // a real retrieval attempt instead of silently using only the first query.
+    const jurisdiction = options.jurisdiction.trim();
+    const scoped = (query: string) =>
+      jurisdiction ? `${query} ${jurisdiction} official` : `${query} official`;
     const queries = options.searchQueries.length
       ? options.searchQueries.slice(0, 2)
-      : [`${options.goal} ${options.jurisdiction} official requirements`];
+      : [
+          jurisdiction
+            ? `${options.goal} ${jurisdiction} official requirements`
+            : `${options.goal} official requirements`,
+        ];
     for (const query of queries) {
       if (!hasCapacity()) break;
       try {
-        const discovery = await options.tavily.discover(
-          `${query} ${options.jurisdiction} official`,
-        );
+        const discovery = await options.tavily.discover(scoped(query));
         tavilyCalls += 1;
         tavilyRequestIds.push(...discovery.requestIds);
         for (const url of discovery.urls) {
@@ -403,10 +419,14 @@ export async function retrieveSources(options: RetrieveOptions) {
 
   const rankedUrls = rankCandidateUrls([...options.directUrls, ...discoveredUrls]);
   const remaining = Math.max(0, MAX_SOURCES - sources.length);
-  const selected = rankedUrls.slice(0, remaining).map((url) => ({
+  // The queue holds ranked candidates beyond the first batch so that a failed
+  // fetch can be replaced by the next-ranked official or secondary source
+  // instead of silently consuming part of the six-source budget.
+  const queue = rankedUrls.map((url) => ({
     url,
     retrieval: options.directUrls.includes(url) ? ('direct' as const) : ('tavily' as const),
   }));
+  const selected = queue.splice(0, remaining);
   if (rankedUrls.length > remaining)
     warnings.push(
       'Only the first six sources were used; additional source URLs were not retrieved.',
@@ -423,26 +443,50 @@ export async function retrieveSources(options: RetrieveOptions) {
     );
   }
 
+  const describeFailure = (url: string, reason: unknown) => {
+    const hostname = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return 'A source';
+      }
+    })();
+    const detail = reason instanceof AppError ? reason.message : 'retrieval failed';
+    warnings.push(`${hostname}: ${detail}`);
+  };
+
   const results = await Promise.allSettled(
     selected.map((candidate, index) =>
       fetchSource(candidate.url, `S${sources.length + index + 1}`, candidate.retrieval),
     ),
   );
+  let failureCount = 0;
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       sources.push(result.value);
     } else {
-      const hostname = (() => {
-        try {
-          return new URL(selected[index].url).hostname;
-        } catch {
-          return 'A source';
-        }
-      })();
-      const reason = result.reason instanceof AppError ? result.reason.message : 'retrieval failed';
-      warnings.push(`${hostname}: ${reason}`);
+      failureCount += 1;
+      describeFailure(selected[index].url, result.reason);
     }
   });
+
+  // Bounded backfill after a failed batch candidate: at most two extra,
+  // sequential attempts, always inside the six-source cap and the function's
+  // overall latency budget. IDs start beyond the initial batch to stay unique
+  // before the contiguous re-assignment below.
+  let backfills = 0;
+  for (let attempt = 0; attempt < failureCount && backfills < 2; attempt += 1) {
+    if (sources.length >= MAX_SOURCES) break;
+    const candidate = queue.shift();
+    if (!candidate) break;
+    const id = `S${sources.length + selected.length + backfills + 1}`;
+    try {
+      sources.push(await fetchSource(candidate.url, id, candidate.retrieval));
+    } catch (error) {
+      describeFailure(candidate.url, error);
+    }
+    backfills += 1;
+  }
 
   if (!sources.length) {
     throw new AppError(
@@ -468,7 +512,7 @@ export async function retrieveSources(options: RetrieveOptions) {
       'No official-domain source was retrieved; secondary publisher guidance cannot override official requirements. Add an official source URL to establish supported requirements.',
     );
   }
-  const directFetches = selected.length;
+  const directFetches = selected.length + backfills;
   logEvent('source_retrieval', {
     sources: sources.length,
     direct_fetches: directFetches,

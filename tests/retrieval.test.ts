@@ -36,6 +36,21 @@ describe('source network boundaries', () => {
     expect(authorityForHostname('notgov.uk')).toBe('secondary');
   });
 
+  it('recognizes generic government registry labels from any jurisdiction without a country table', () => {
+    // Registry-label patterns, not country-specific entries: a previously
+    // unconfigured jurisdiction is recognized purely on hostname structure.
+    expect(authorityForHostname('www.service-public.gouv.fr')).toBe('official');
+    expect(authorityForHostname('www.canada.ca')).toBe('secondary');
+    expect(authorityForHostname('www.cic.gc.ca')).toBe('official');
+    expect(authorityForHostname('www.nta.go.jp')).toBe('official');
+    expect(authorityForHostname('www.govt.nz')).toBe('official');
+    expect(authorityForHostname('ec.europa.eu')).toBe('official');
+    expect(authorityForHostname('europa.eu.evil.example')).toBe('secondary');
+    // An ordinary .de ministry host that follows no registry label stays
+    // secondary and degrades honestly via the no-official-source warning.
+    expect(authorityForHostname('www.auswaertiges-amt.de')).toBe('secondary');
+  });
+
   it('rejects a local URL before any network request', async () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
@@ -199,5 +214,86 @@ describe('candidate ranking and targeted discovery', () => {
         warning.includes('No official-domain source was retrieved'),
       ),
     ).toBe(true);
+  });
+
+  it('backfills the six-source budget with the next ranked candidate when a fetch fails', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url);
+      if (target.includes('8.8.8.8/broken')) {
+        return new Response('fault', {
+          status: 500,
+          headers: { 'content-type': 'text/plain' },
+        });
+      }
+      return new Response(
+        `Retrieved guidance text from ${target} with enough words to pass the minimum source length check.`,
+        { status: 200, headers: { 'content-type': 'text/plain' } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const discovered = [
+      'https://9.9.9.9/one',
+      'https://9.9.9.9/two',
+      'https://9.9.9.9/three',
+      'https://9.9.9.9/four',
+      'https://9.9.9.9/five',
+      'https://9.9.9.9/six',
+    ];
+    const tavily = {
+      configured: true,
+      discover: vi.fn(async () => ({
+        urls: discovered,
+        requestIds: ['req-backfill'],
+        calls: 1,
+      })),
+    };
+
+    const result = await retrieveSources({
+      directUrls: ['https://8.8.8.8/broken'],
+      searchQueries: ['permit guidance'],
+      goal: 'Complete a permit application',
+      jurisdiction: 'Kenya',
+      document: null,
+      tavily: tavily as unknown as TavilyClient,
+    });
+
+    // The failed direct source is replaced, not silently counted as a source.
+    expect(result.sources).toHaveLength(6);
+    expect(result.sources.some((entry) => entry.source.url?.includes('broken'))).toBe(false);
+    expect(result.warnings.some((warning) => warning.includes('8.8.8.8'))).toBe(true);
+    // Seven fetch attempts: six in the initial batch plus one backfill.
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(result.directFetches).toBe(7);
+  });
+
+  it('scopes discovery queries without a jurisdiction suffix when none was supplied', async () => {
+    const fetchMock = vi.fn(
+      async (url: string) =>
+        new Response(
+          `Retrieved guidance text from ${String(url)} with enough words to pass the source check.`,
+          { status: 200, headers: { 'content-type': 'text/plain' } },
+        ),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+    const queries: string[] = [];
+    const tavily = {
+      configured: true,
+      discover: vi.fn(async (query: string) => {
+        queries.push(query);
+        return { urls: ['https://9.9.9.9/basics'], requestIds: ['req-x'], calls: 1 };
+      }),
+    };
+
+    await retrieveSources({
+      directUrls: [],
+      searchQueries: ['register a business'],
+      goal: 'Register a small business',
+      jurisdiction: '',
+      document: null,
+      tavily: tavily as unknown as TavilyClient,
+    });
+
+    expect(queries[0]).toBe('register a business official');
+    expect(queries[0]).not.toMatch(/\s{2,}/);
   });
 });
