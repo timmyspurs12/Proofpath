@@ -319,8 +319,8 @@ export function PlanView({ plan }: { plan: Plan }) {
                 'Sample · not generated live'
               )}
             </span>
-            <span>{plan.jurisdiction}</span>
-            <span>{plan.category}</span>
+            <span>{plan.jurisdiction || 'Jurisdiction not specified'}</span>
+            {plan.category && <span>{plan.category}</span>}
           </div>
           <h1>{plan.title}</h1>
           <p>{plan.goal}</p>

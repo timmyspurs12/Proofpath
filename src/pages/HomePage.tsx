@@ -29,12 +29,25 @@ import { BrandMark } from '../components/Logo';
 
 const initialForm: TaskInput = {
   task: '',
-  jurisdiction: 'United Kingdom',
-  category: 'Travel & identity',
+  jurisdiction: '',
+  category: '',
   details: '',
   sourceUrls: [],
   document: null,
 };
+
+// Suggestions only: every field accepts arbitrary free text and there is no
+// client-side allowlist of supported countries or task categories.
+const CATEGORY_EXAMPLES = [
+  'Travel & identity documents',
+  'Visa & immigration',
+  'Business registration & licensing',
+  'Tax & administrative obligations',
+  'Education & credentials',
+  'Government benefits & public services',
+  'Civil registration',
+  'Other administrative task',
+];
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -485,37 +498,41 @@ export function HomePage() {
             </div>
             <div className="form-grid two-columns">
               <div className="field">
-                <label htmlFor="jurisdiction">Jurisdiction</label>
+                <label htmlFor="jurisdiction">
+                  Jurisdiction <span className="optional">optional — we ask if unsure</span>
+                </label>
                 <input
                   id="jurisdiction"
-                  list="jurisdiction-options"
                   value={form.jurisdiction}
+                  maxLength={100}
                   onChange={(event) => update('jurisdiction', event.target.value)}
-                  required
+                  placeholder="Any country, region, or consular jurisdiction — e.g. Kenya, Brazil, or “Nigeria, applying from abroad”"
                 />
-                <datalist id="jurisdiction-options">
-                  <option value="United Kingdom" />
-                  <option value="Nigeria" />
-                  <option value="United States" />
-                  <option value="Canada" />
-                  <option value="European Union" />
-                </datalist>
-                <span className="field-help">Requirements are never assumed across borders.</span>
+                <span className="field-help">
+                  Any country works; leave blank and ProofPath asks instead of guessing.
+                  Requirements are never assumed across borders.
+                </span>
               </div>
               <div className="field">
-                <label htmlFor="category">Task category</label>
-                <select
+                <label htmlFor="category">
+                  Task category <span className="optional">optional</span>
+                </label>
+                <input
                   id="category"
+                  list="category-options"
                   value={form.category}
+                  maxLength={80}
                   onChange={(event) => update('category', event.target.value)}
-                >
-                  <option>Travel & identity</option>
-                  <option>Education & funding</option>
-                  <option>Public services</option>
-                  <option>Utilities & bills</option>
-                  <option>Documents & applications</option>
-                  <option>Other administrative task</option>
-                </select>
+                  placeholder="e.g. Business registration, visa application, tax registration"
+                />
+                <datalist id="category-options">
+                  {CATEGORY_EXAMPLES.map((example) => (
+                    <option key={example} value={example} />
+                  ))}
+                </datalist>
+                <span className="field-help">
+                  These are examples only — type any administrative task.
+                </span>
               </div>
             </div>
             <div className="field">
