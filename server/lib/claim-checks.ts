@@ -22,6 +22,39 @@ export type ClaimContradictionKind =
   | 'conditional-route'
   | 'fee-context-mismatch';
 
+// Machine-readable reason codes. Decisive codes reuse the finding kinds;
+// skipped-* codes explain why an evaluated passage could not downgrade a step.
+export type ContradictionReasonCode =
+  | ClaimContradictionKind
+  | 'currency-claim-grounded'
+  | 'skipped-scope-route'
+  | 'skipped-scope-location'
+  | 'skipped-applicant-circumstance'
+  | 'skipped-no-negation-cue'
+  | 'skipped-generic-term-only'
+  | 'skipped-clause-subject-mismatch'
+  | 'skipped-money-clause'
+  | 'skipped-no-distinctive-term';
+
+export interface ContradictionDiagnostic {
+  instructionId: string | null;
+  sourceId: string;
+  sentence: string;
+  clause: string | null;
+  requestedRoute: RouteContext;
+  sentenceRoutes: Array<Exclude<keyof RouteContext, 'abroad'>>;
+  locationScope: 'domestic' | 'abroad' | 'unspecified';
+  negationCues: string[];
+  negatedTerms: string[];
+  alignedTerms: string[];
+  subjectActionAligned: boolean | null;
+  routeAligned: boolean | null;
+  circumstanceAligned: boolean | null;
+  decision: 'contradiction' | 'not_contradiction';
+  reasonCode: ContradictionReasonCode;
+  findingKind: ClaimContradictionKind | null;
+}
+
 // Generic scope qualifiers attached to a published fee. Vocabulary describes
 // transaction circumstances (where, which document, for how long, surcharges),
 // never a specific country or agency.
@@ -348,19 +381,199 @@ function termAppears(term: string, terms: string[]): boolean {
   return terms.some((candidate) => variants.has(candidate));
 }
 
-function alignedNegatedTerms(clause: string, terms: string[]): string[] {
-  const hits = negatedTermsInSentence(clause, terms);
-  if (!hits.length) return [];
-  const contentHits = hits.filter(
+interface ClauseAlignment {
+  aligned: boolean;
+  reasonCode: Extract<
+    ContradictionReasonCode,
+    | 'negated-requirement'
+    | 'skipped-no-negation-cue'
+    | 'skipped-generic-term-only'
+    | 'skipped-clause-subject-mismatch'
+  >;
+  negatedTerms: string[];
+  alignedTerms: string[];
+}
+
+function distinctiveClauseTerms(clause: string): string[] {
+  return instructionTerms(clause).filter(
     (term) => !GENERIC_PROCESS_TERMS.has(term) && !ROUTE_TERMS.has(term),
   );
-  if (contentHits.length) return contentHits;
-  const routeHits = hits.filter((term) => ROUTE_TERMS.has(term));
-  if (!routeHits.length) return [];
-  const clauseSubjectTerms = instructionTerms(clause).filter(
+}
+
+// Monetary head nouns used to recognise money clauses. Kept module-level so
+// both the money-scope gate and the alignment helper share one vocabulary.
+const MONEY_CLAUSE_PATTERN =
+  /\b(?:fee|fees|charge|charges|payment|cost|price|refund|tariff|duty)\b/i;
+
+// Auxiliary verbs that form an auxiliary negation with a following "not"
+// ("the replacement record will not keep the same reference number"). There
+// the pre-cue noun is the subject whose property is negated, so it must
+// remain a subject blocker.
+const AUXILIARY_VERBS = new Set([
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'am',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'shall',
+  'should',
+  'can',
+  'could',
+  'may',
+  'might',
+  'must',
+  'need',
+]);
+
+// Distinctive clause vocabulary that pivots the negation onto a different
+// subject than the instruction. Terms before a modal/imperative prohibition
+// cue ("applicants from abroad cannot complete...", "Minors cannot attend...")
+// name the entity or circumstance the rule applies to; the location and
+// applicant-circumstance scope gates already evaluate them, so they cannot
+// make the clause about another subject. An auxiliary negation
+// ("your new credential will not keep the same number") instead negates a
+// property of its pre-cue subject, which therefore stays a blocker. A
+// non-shared distinctive term inside the negated predicate is always such a
+// pivot: "do not book travel" cannot negate a biometric appointment even
+// though both instructions use the verb "book".
+function clauseSubjectBlockers(clause: string, terms: string[]): string[] {
+  const tokens = clause.toLowerCase().match(/[a-z']+/g) ?? [];
+  const firstCue = tokens.findIndex((token) => NEGATION_CUES.has(token));
+  if (firstCue < 0) return [];
+  const preceding = firstCue > 0 ? tokens[firstCue - 1] : null;
+  const auxiliaryNegation =
+    tokens[firstCue] === 'not' && preceding !== null && AUXILIARY_VERBS.has(preceding);
+  const blockers: string[] = [];
+  tokens.forEach((token, index) => {
+    if (token.length < 4) return;
+    if (
+      STOPWORDS.has(token) ||
+      GENERIC_PROCESS_TERMS.has(token) ||
+      ROUTE_TERMS.has(token) ||
+      NEGATION_CUES.has(token)
+    ) {
+      return;
+    }
+    if (termAppears(token, terms) || blockers.includes(token)) return;
+    const beforeCue = index < firstCue;
+    if (beforeCue) {
+      if (!auxiliaryNegation) return;
+      if (firstCue - index > NEGATION_WINDOW) return;
+    } else if (index - firstCue > NEGATION_WINDOW) {
+      return;
+    }
+    blockers.push(token);
+  });
+  return blockers;
+}
+
+// Decides whether a negated clause concerns the same subject/action as the
+// instruction. Generic process vocabulary can never establish alignment on
+// its own, and a single shared term is insufficient when the negated
+// predicate pivots onto a different substantive subject (for example
+// "do not book travel" cannot negate "book a biometric appointment"). A
+// channel negation with no distinctive predicate pivot of its own
+// ("applications cannot be completed by post") remains decisive against an
+// instruction using that channel. When moneyClaim is set, a negated monetary
+// head noun in the clause counts as a content hit: instructionTerms only keeps
+// tokens of four or more letters, so the three-letter word "fee" would
+// otherwise be invisible even though the instruction explicitly makes a fee
+// claim.
+function evaluateClauseAlignment(
+  clause: string,
+  terms: string[],
+  moneyClaim: boolean,
+): ClauseAlignment {
+  const negatedTerms = negatedTermsInSentence(clause, terms);
+  if (moneyClaim && MONEY_CLAUSE_PATTERN.test(clause) && negationCuesIn(clause).length) {
+    const tokens = clause.toLowerCase().match(/[a-z']+/g) ?? [];
+    const cueIndexes = tokens
+      .map((token, index) => (NEGATION_CUES.has(token) ? index : -1))
+      .filter((index) => index >= 0);
+    tokens.forEach((token, index) => {
+      if (!MONEY_CLAUSE_PATTERN.test(token) || negatedTerms.includes(token)) return;
+      const cued = cueIndexes.some((cueIndex) => Math.abs(index - cueIndex) <= NEGATION_WINDOW);
+      if (cued) negatedTerms.push(token);
+    });
+  }
+  if (!negatedTerms.length) {
+    return {
+      aligned: false,
+      // A cue with no aligned instruction term means the clause negates a
+      // different subject; only a clause carrying no cue at all is a no-cue.
+      reasonCode: negationCuesIn(clause).length
+        ? 'skipped-clause-subject-mismatch'
+        : 'skipped-no-negation-cue',
+      negatedTerms: [],
+      alignedTerms: [],
+    };
+  }
+  const contentHits = negatedTerms.filter(
     (term) => !GENERIC_PROCESS_TERMS.has(term) && !ROUTE_TERMS.has(term),
   );
-  return clauseSubjectTerms.every((term) => termAppears(term, terms)) ? routeHits : [];
+  const routeHits = negatedTerms.filter((term) => ROUTE_TERMS.has(term));
+  if (contentHits.length >= 2) {
+    return {
+      aligned: true,
+      reasonCode: 'negated-requirement',
+      negatedTerms,
+      alignedTerms: contentHits,
+    };
+  }
+  if (contentHits.length === 1) {
+    if (!clauseSubjectBlockers(clause, terms).length) {
+      return {
+        aligned: true,
+        reasonCode: 'negated-requirement',
+        negatedTerms,
+        alignedTerms: contentHits,
+      };
+    }
+    return {
+      aligned: false,
+      reasonCode: 'skipped-clause-subject-mismatch',
+      negatedTerms,
+      alignedTerms: contentHits,
+    };
+  }
+  if (!routeHits.length) {
+    return {
+      aligned: false,
+      reasonCode: 'skipped-generic-term-only',
+      negatedTerms,
+      alignedTerms: [],
+    };
+  }
+  // Route-only overlap: a negated channel word only contradicts an
+  // instruction when the clause has no different substantive subject of its
+  // own ("applications cannot be completed by post"). Pre-cue subjects count
+  // here, because no shared content term established that the clause concerns
+  // this step's subject at all.
+  if (distinctiveClauseTerms(clause).every((term) => termAppears(term, terms))) {
+    return {
+      aligned: true,
+      reasonCode: 'negated-requirement',
+      negatedTerms,
+      alignedTerms: routeHits,
+    };
+  }
+  return {
+    aligned: false,
+    reasonCode: 'skipped-clause-subject-mismatch',
+    negatedTerms,
+    alignedTerms: routeHits,
+  };
 }
 
 function splitSentences(text: string): string[] {
@@ -397,16 +610,27 @@ function negatedTermsInSentence(sentence: string, terms: string[]): string[] {
   if (!cueIndexes.length) return [];
   const hit: string[] = [];
   for (const term of terms) {
-    const termIndex = tokens.findIndex((token) => token === term);
-    if (termIndex < 0) continue;
-    // Symmetric window: covers both imperative negation ("do not post the
-    // form") and copular negation where the subject comes first ("the fee is
-    // not required"). The scope, circumstance and alignment gates downstream
-    // decide whether the negated word actually concerns the instruction.
-    const cued = cueIndexes.some((cueIndex) => Math.abs(termIndex - cueIndex) <= NEGATION_WINDOW);
+    const positions = tokens
+      .map((token, index) => (token === term ? index : -1))
+      .filter((index) => index >= 0);
+    if (!positions.length) continue;
+    // Symmetric window over every occurrence: covers both imperative negation
+    // ("do not post the form") and copular negation where the subject comes
+    // first ("the fee is not required"). A repeated term counts if ANY of its
+    // occurrences sits inside the window around a cue. The scope, circumstance
+    // and alignment gates downstream decide whether the negated word actually
+    // concerns the instruction.
+    const cued = positions.some((position) =>
+      cueIndexes.some((cueIndex) => Math.abs(position - cueIndex) <= NEGATION_WINDOW),
+    );
     if (cued && !hit.includes(term)) hit.push(term);
   }
   return hit;
+}
+
+function negationCuesIn(text: string): string[] {
+  const tokens = new Set(text.toLowerCase().match(/[a-z']+/g) ?? []);
+  return [...NEGATION_CUES].filter((cue) => tokens.has(cue));
 }
 
 // Generic transaction-route vocabulary. Groups describe how a process is
@@ -420,7 +644,7 @@ const ROUTE_MARKER_GROUPS: Array<{
   {
     key: 'paper',
     pattern:
-      /\b(?:paper form|paper application|paper route|by post|postal|by mail|check and send)\b/i,
+      /\b(?:paper forms?|paper applications?|paper route|by post|postal|by mail|check and send)\b/i,
   },
   {
     key: 'inPerson',
@@ -449,8 +673,11 @@ const DEPENDENT_CIRCUMSTANCE = /\bguardians?\b|\bparental\b|\bparents?\b|\bchild
 
 type Circumstance = 'age' | 'dependent';
 
-function conditionalCircumstance(sentence: string): Circumstance | null {
-  if (!CONDITION_LEAD.test(sentence)) return null;
+// Applicant-circumstance detection does not require an "if/when/unless" lead:
+// official pages also phrase category rules as noun subjects ("Applicants
+// under 16 do not...", "Minors cannot..."). The gate only skips a passage when
+// the instruction's own applicant does not share the named circumstance.
+function sentenceCircumstance(sentence: string): Circumstance | null {
   if (AGE_CIRCUMSTANCE.test(sentence)) return 'age';
   if (DEPENDENT_CIRCUMSTANCE.test(sentence)) return 'dependent';
   return null;
@@ -462,28 +689,38 @@ function instructionCoversCircumstance(instruction: string, circumstance: Circum
     : DEPENDENT_CIRCUMSTANCE.test(instruction);
 }
 
+function locationScopeOf(sentence: string): 'domestic' | 'abroad' | 'unspecified' {
+  if (ABROAD_CONTEXT.test(sentence)) return 'abroad';
+  if (DOMESTIC_SCOPE.test(sentence)) return 'domestic';
+  return 'unspecified';
+}
+
 // Sentence-level scope gate evaluated BEFORE clauses are split, so route and
 // location context in one clause cannot be lost by punctuation in the next.
 // A passage is out of scope when every transaction route it names differs
 // from the requested routes, or when its location context (domestic versus
 // abroad/consular) is the opposite of the request's. A passage naming no
 // scope at all remains eligible and is decided by term alignment instead.
-function sentenceIsOutOfScope(
+// Returns the skip reason code, or null when the sentence is in scope.
+function sentenceScopeSkipReason(
   sentence: string,
   route: RouteContext,
   requestedRouteKeys: Set<string>,
-): boolean {
+): ContradictionReasonCode | null {
+  // Location context wins: a consular/diaspora sentence can never negate a
+  // domestic instruction (and vice versa), even when it also names a channel
+  // that the request uses.
+  if (!route.abroad && ABROAD_CONTEXT.test(sentence)) return 'skipped-scope-location';
+  if (route.abroad && DOMESTIC_SCOPE.test(sentence)) return 'skipped-scope-location';
   const sentenceRoutes = routesMentionedInSentence(sentence);
   if (
     requestedRouteKeys.size &&
     sentenceRoutes.size &&
     [...sentenceRoutes].every((key) => !requestedRouteKeys.has(key))
   ) {
-    return true;
+    return 'skipped-scope-route';
   }
-  if (!route.abroad && ABROAD_CONTEXT.test(sentence)) return true;
-  if (route.abroad && DOMESTIC_SCOPE.test(sentence)) return true;
-  return false;
+  return null;
 }
 
 function sentenceMentionsTerm(sentence: string, terms: string[]) {
@@ -518,22 +755,92 @@ function routesMentionedInSentence(sentence: string) {
   );
 }
 
+// Single-token channel words, mirroring ROUTE_TERMS, so instructions whose
+// wording inflects beyond the marker phrases ("Post paper forms") still
+// declare the channel they actually use. Domain-neutral vocabulary only.
+const TOKEN_ROUTE_KEYS: Record<string, Exclude<keyof RouteContext, 'abroad'>> = {
+  online: 'online',
+  digital: 'online',
+  digitally: 'online',
+  post: 'paper',
+  postal: 'paper',
+  mail: 'paper',
+  paper: 'paper',
+  counter: 'inPerson',
+  embassy: 'consular',
+  consulate: 'consular',
+  consular: 'consular',
+  mission: 'consular',
+};
+
+function routesInText(text: string): Set<Exclude<keyof RouteContext, 'abroad'>> {
+  const found = routesMentionedInSentence(text);
+  for (const token of text.toLowerCase().match(/[a-z']+/g) ?? []) {
+    const key = TOKEN_ROUTE_KEYS[token];
+    if (key) found.add(key);
+  }
+  return found;
+}
+
 export interface InstructionContradictionInput {
   instruction: string;
   sources: RetrievedSource[];
   citedSourceIds: string[];
   route: RouteContext;
+  // Stable model step id carried onto each diagnostic record.
+  instructionId?: string | null;
+  // Optional sink. When omitted the detector runs exactly as before and no
+  // diagnostic objects are allocated.
+  diagnostics?: ContradictionDiagnostic[];
 }
+
+// Bounded opt-in audit trail across all steps of one validation call. The
+// detector itself never allocates these records unless a sink is supplied.
+const MAX_DIAGNOSTICS = 500;
 
 export function findInstructionContradictions(
   input: InstructionContradictionInput,
 ): ClaimContradiction[] {
   const contradictions: ClaimContradiction[] = [];
+  const diagnostics = input.diagnostics ?? null;
+  const record = (
+    partial: Omit<ContradictionDiagnostic, 'instructionId' | 'requestedRoute'>,
+  ): void => {
+    if (!diagnostics || diagnostics.length >= MAX_DIAGNOSTICS) return;
+    diagnostics.push({
+      instructionId: input.instructionId ?? null,
+      requestedRoute: input.route,
+      ...partial,
+    });
+  };
   const push = (kind: ClaimContradictionKind, detail: string, sourceIds: string[]) => {
     const uniqueIds = [...new Set(sourceIds)];
     if (!contradictions.some((entry) => entry.kind === kind && entry.detail === detail)) {
       contradictions.push({ kind, detail, sourceIds: uniqueIds });
     }
+  };
+  const recordCurrency = (
+    decision: ContradictionDiagnostic['decision'],
+    reasonCode: ContradictionReasonCode,
+    findingKind: ClaimContradictionKind | null,
+    entry: { sourceId: string; sentence: string } | null,
+  ): void => {
+    record({
+      sourceId: entry?.sourceId ?? input.citedSourceIds[0] ?? 'unknown',
+      sentence: entry?.sentence ?? '',
+      clause: null,
+      sentenceRoutes: [],
+      locationScope: 'unspecified',
+      negationCues: [],
+      negatedTerms: [],
+      alignedTerms: [],
+      subjectActionAligned: null,
+      routeAligned: null,
+      circumstanceAligned: null,
+      decision,
+      reasonCode,
+      findingKind,
+    });
   };
 
   // 1. Currency claims must match an amount that actually appears in evidence.
@@ -573,6 +880,7 @@ export function findInstructionContradictions(
           `Support withdrawn: the ${claim.surface} amount in the instruction appears in no retrieved source.`,
           input.citedSourceIds,
         );
+        recordCurrency('contradiction', 'ungrounded-currency', 'ungrounded-currency', null);
         continue;
       }
       // Official evidence is the reference whenever it names an amount: a
@@ -589,6 +897,12 @@ export function findInstructionContradictions(
           'currency-mismatch',
           detail,
           reference.map((entry) => entry.sourceId),
+        );
+        recordCurrency(
+          'contradiction',
+          'currency-mismatch',
+          'currency-mismatch',
+          reference[0] ?? null,
         );
         continue;
       }
@@ -610,6 +924,14 @@ export function findInstructionContradictions(
           `Support withdrawn: the ${claim.surface} figure appears in evidence but its scope does not match the instruction — ${reasons.join('; ')}.`,
           [...new Set(incompatible.map((entry) => entry.sourceId))],
         );
+        recordCurrency(
+          'contradiction',
+          'fee-context-mismatch',
+          'fee-context-mismatch',
+          incompatible[0] ?? null,
+        );
+      } else {
+        recordCurrency('not_contradiction', 'currency-claim-grounded', null, matching[0] ?? null);
       }
     }
   }
@@ -621,41 +943,162 @@ export function findInstructionContradictions(
   //    the requested one are not treated as contradicting it.
   const terms = instructionTerms(input.instruction);
   if (terms.length) {
-    const MONEY_CLAUSE = /\b(?:fee|fees|charge|charges|payment|cost|price|refund|tariff|duty)\b/i;
-    const instructionMentionsMoney = MONEY_CLAUSE.test(input.instruction) || claims.length > 0;
+    const instructionMentionsMoney =
+      MONEY_CLAUSE_PATTERN.test(input.instruction) || claims.length > 0;
     const requestedRouteKeys = new Set(
       ROUTE_MARKER_GROUPS.map((group) => group.key).filter((key) => input.route[key]),
     );
     for (const source of input.sources) {
       for (const sentence of splitSentences(source.text)) {
+        const sentenceRoutes = [...routesMentionedInSentence(sentence)];
+        const locationScope = locationScopeOf(sentence);
         // Scope first: a consular/diaspora passage or an incompatible route
         // cannot negate a domestic instruction (and vice versa), regardless of
         // which later clause carries the negation cue.
-        if (sentenceIsOutOfScope(sentence, input.route, requestedRouteKeys)) continue;
-        // A negation conditional on a different applicant circumstance (for
-        // example an age or guardian condition the instruction never mentions)
-        // describes another application type, not this one.
-        const circumstance = conditionalCircumstance(sentence);
-        if (circumstance && !instructionCoversCircumstance(input.instruction, circumstance)) {
+        const scopeReason = sentenceScopeSkipReason(sentence, input.route, requestedRouteKeys);
+        if (scopeReason) {
+          if (negationCuesIn(sentence).length) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause: null,
+              sentenceRoutes,
+              locationScope,
+              negationCues: negationCuesIn(sentence),
+              negatedTerms: [],
+              alignedTerms: [],
+              subjectActionAligned: null,
+              routeAligned: false,
+              circumstanceAligned: true,
+              decision: 'not_contradiction',
+              reasonCode: scopeReason,
+              findingKind: null,
+            });
+          }
           continue;
         }
+        // A negation scoped to a different applicant circumstance (for
+        // example an age or guardian condition the instruction never
+        // mentions) describes another application type, not this one.
+        const circumstance = sentenceCircumstance(sentence);
+        const circumstanceAligned =
+          !circumstance || instructionCoversCircumstance(input.instruction, circumstance);
+        if (circumstance && !circumstanceAligned) {
+          record({
+            sourceId: source.source.id,
+            sentence,
+            clause: null,
+            sentenceRoutes,
+            locationScope,
+            negationCues: negationCuesIn(sentence),
+            negatedTerms: [],
+            alignedTerms: [],
+            subjectActionAligned: null,
+            routeAligned: true,
+            circumstanceAligned: false,
+            decision: 'not_contradiction',
+            reasonCode: 'skipped-applicant-circumstance',
+            findingKind: null,
+          });
+          continue;
+        }
+        // Only sentences carrying a negation cue can produce a negation
+        // finding; evaluate each clause independently for the record.
+        if (!negationCuesIn(sentence).length) continue;
         const clauses = sentence
           .split(/[;:,](?=\s)/)
           .map((clause) => clause.trim())
           .filter((clause) => clause.length >= 5);
         for (const clause of clauses) {
-          // The negated words must concern the same subject or action as the
-          // instruction, in the same route and context. Generic process words
-          // or an unrelated clause subject are not enough.
-          if (!alignedNegatedTerms(clause, terms).length) continue;
+          const alignment = evaluateClauseAlignment(clause, terms, instructionMentionsMoney);
           // A clause negating a fee cannot contradict an instruction that
           // makes no monetary claim at all.
-          if (MONEY_CLAUSE.test(clause) && !instructionMentionsMoney) continue;
+          if (MONEY_CLAUSE_PATTERN.test(clause) && !instructionMentionsMoney) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause,
+              sentenceRoutes,
+              locationScope,
+              negationCues: negationCuesIn(clause),
+              negatedTerms: alignment.negatedTerms,
+              alignedTerms: alignment.alignedTerms,
+              subjectActionAligned: false,
+              routeAligned: true,
+              circumstanceAligned: true,
+              decision: 'not_contradiction',
+              reasonCode: 'skipped-money-clause',
+              findingKind: null,
+            });
+            continue;
+          }
+          if (!alignment.aligned) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause,
+              sentenceRoutes,
+              locationScope,
+              negationCues: negationCuesIn(clause),
+              negatedTerms: alignment.negatedTerms,
+              alignedTerms: alignment.alignedTerms,
+              subjectActionAligned: false,
+              routeAligned: true,
+              circumstanceAligned: true,
+              decision: 'not_contradiction',
+              reasonCode: alignment.reasonCode,
+              findingKind: null,
+            });
+            continue;
+          }
+          // Channel-scoped prohibition: even when the subject aligns, the
+          // clause can only contradict an instruction that asserts the same
+          // channel ("cannot be completed online" cannot negate an in-person
+          // instruction). Sentence-level scope cannot see this because one
+          // sentence may name several channels. Token-level route resolution
+          // keeps inflected instruction wording ("Post paper forms") in scope.
+          const clauseRoutes = routesInText(clause);
+          const instructionRoutes = routesInText(input.instruction);
+          if (clauseRoutes.size && [...clauseRoutes].every((key) => !instructionRoutes.has(key))) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause,
+              sentenceRoutes: [...clauseRoutes],
+              locationScope,
+              negationCues: negationCuesIn(clause),
+              negatedTerms: alignment.negatedTerms,
+              alignedTerms: alignment.alignedTerms,
+              subjectActionAligned: true,
+              routeAligned: false,
+              circumstanceAligned: true,
+              decision: 'not_contradiction',
+              reasonCode: 'skipped-scope-route',
+              findingKind: null,
+            });
+            continue;
+          }
           push(
             'negated-requirement',
             `Support withdrawn: a retrieved source negates a requirement stated in this step: “${clipSentence(clause)}”.`,
             [source.source.id],
           );
+          record({
+            sourceId: source.source.id,
+            sentence,
+            clause,
+            sentenceRoutes,
+            locationScope,
+            negationCues: negationCuesIn(clause),
+            negatedTerms: alignment.negatedTerms,
+            alignedTerms: alignment.alignedTerms,
+            subjectActionAligned: true,
+            routeAligned: true,
+            circumstanceAligned: true,
+            decision: 'contradiction',
+            reasonCode: 'negated-requirement',
+            findingKind: 'negated-requirement',
+          });
         }
       }
     }
@@ -672,16 +1115,102 @@ export function findInstructionContradictions(
       const distinctiveTerms = terms.filter((term) => !GENERIC_PROCESS_TERMS.has(term));
       for (const source of input.sources) {
         for (const sentence of splitSentences(source.text)) {
-          if (!CONDITION_LEAD.test(sentence) || !sentenceMentionsTerm(sentence, distinctiveTerms)) {
+          if (!CONDITION_LEAD.test(sentence)) continue;
+          if (!sentenceMentionsTerm(sentence, distinctiveTerms)) {
+            // Record generic-only overlap so the non-decision is inspectable.
+            if (sentenceMentionsTerm(sentence, terms)) {
+              record({
+                sourceId: source.source.id,
+                sentence,
+                clause: null,
+                sentenceRoutes: [...routesMentionedInSentence(sentence)],
+                locationScope: locationScopeOf(sentence),
+                negationCues: negationCuesIn(sentence),
+                negatedTerms: [],
+                alignedTerms: [],
+                subjectActionAligned: false,
+                routeAligned: true,
+                circumstanceAligned: true,
+                decision: 'not_contradiction',
+                reasonCode: 'skipped-no-distinctive-term',
+                findingKind: null,
+              });
+            }
             continue;
           }
-          if (sentenceIsOutOfScope(sentence, input.route, requestedRoutes)) {
-            push(
-              'conditional-route',
-              'Support withdrawn: a retrieved source makes this requirement conditional on a different application route than the one requested.',
-              [source.source.id],
-            );
+          // A location mismatch (consular/diaspora sentence for a domestic
+          // request) is never a conditional-route contradiction; a different
+          // transaction route, however, is exactly what this finding reports.
+          const locationMismatch =
+            (!input.route.abroad && ABROAD_CONTEXT.test(sentence)) ||
+            (input.route.abroad && DOMESTIC_SCOPE.test(sentence));
+          if (locationMismatch) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause: null,
+              sentenceRoutes: [...routesMentionedInSentence(sentence)],
+              locationScope: locationScopeOf(sentence),
+              negationCues: negationCuesIn(sentence),
+              negatedTerms: [],
+              alignedTerms: [],
+              subjectActionAligned: true,
+              routeAligned: false,
+              circumstanceAligned: true,
+              decision: 'not_contradiction',
+              reasonCode: 'skipped-scope-location',
+              findingKind: null,
+            });
+            continue;
           }
+          const circumstance = sentenceCircumstance(sentence);
+          if (circumstance && !instructionCoversCircumstance(input.instruction, circumstance)) {
+            record({
+              sourceId: source.source.id,
+              sentence,
+              clause: null,
+              sentenceRoutes: [...routesMentionedInSentence(sentence)],
+              locationScope: locationScopeOf(sentence),
+              negationCues: negationCuesIn(sentence),
+              negatedTerms: [],
+              alignedTerms: [],
+              subjectActionAligned: true,
+              routeAligned: true,
+              circumstanceAligned: false,
+              decision: 'not_contradiction',
+              reasonCode: 'skipped-applicant-circumstance',
+              findingKind: null,
+            });
+            continue;
+          }
+          const routeMismatch =
+            sentenceScopeSkipReason(sentence, input.route, requestedRoutes) ===
+            'skipped-scope-route';
+          // Same-route conditional: no contradiction, nothing to record.
+          if (!routeMismatch) continue;
+          push(
+            'conditional-route',
+            'Support withdrawn: a retrieved source makes this requirement conditional on a different application route than the one requested.',
+            [source.source.id],
+          );
+          record({
+            sourceId: source.source.id,
+            sentence,
+            clause: null,
+            sentenceRoutes: [...routesMentionedInSentence(sentence)],
+            locationScope: locationScopeOf(sentence),
+            negationCues: negationCuesIn(sentence),
+            negatedTerms: [],
+            alignedTerms: distinctiveTerms.filter((term) =>
+              new RegExp(`\\b${term}\\b`).test(sentence.toLowerCase()),
+            ),
+            subjectActionAligned: true,
+            routeAligned: false,
+            circumstanceAligned: true,
+            decision: 'contradiction',
+            reasonCode: 'conditional-route',
+            findingKind: 'conditional-route',
+          });
         }
       }
     }
