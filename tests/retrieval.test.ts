@@ -91,13 +91,24 @@ describe('source network boundaries', () => {
     expect(result.source.contentHash).toBe(hashText(result.text));
   });
 
-  it('rejects unsupported files and oversized responses', async () => {
+  it('rejects unsupported files, unreadable PDFs and oversized responses', async () => {
+    // PDFs are supported now; an invalid PDF body fails closed as unreadable.
     globalThis.fetch = vi
       .fn()
       .mockResolvedValue(
         new Response('%PDF', { status: 200, headers: { 'Content-Type': 'application/pdf' } }),
       );
-    await expect(fetchSource('https://8.8.8.8/file', 'S1')).rejects.toMatchObject({
+    await expect(fetchSource('https://8.8.8.8/file.pdf', 'S1')).rejects.toMatchObject({
+      code: 'SOURCE_PDF_UNREADABLE',
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('binary', {
+        status: 200,
+        headers: { 'Content-Type': 'application/zip' },
+      }),
+    );
+    await expect(fetchSource('https://8.8.8.8/archive', 'S1')).rejects.toMatchObject({
       code: 'SOURCE_UNSUPPORTED_TYPE',
     });
 

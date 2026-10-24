@@ -155,6 +155,7 @@ Rules:
 10. When guidance for a step cannot be retrieved, keep the step "unverifiable" and phrase the unresolved question around the specific missing official guidance, naming the step and its route, instead of asking a generic question.
 11. Jurisdictional applicability is part of the evidence. A "supported" step must cite a passage that concerns the same jurisdiction, applicant circumstance, route, document type, and effective conditions as the request; never transfer a rule, amount, or deadline from another country, route, applicant category, or date. If the retrieved sources do not cover the requested jurisdiction, keep the step "unverifiable" and say so in unresolvedQuestions.
 12. Build the plan from the actual process and evidence, not from a passport or any other template. Only include fees, deadlines, documents, appointments, or links that the sources establish; leave a field absent or unresolved rather than inventing one.
+13. Fees carry qualifiers. When you state a fee, copy the exact figure together with the scope words from the same passage: domestic or abroad/diaspora/consular, booklet size, validity period, and whether bank charges are included or excluded. Never merge figures from different scopes or add bank charges to a fee that the source states excludes them. If two official passages cannot be reconciled, emit a conflict entry quoting both and add an unresolved question instead of choosing one.
 Return JSON only matching the requested schema.`;
 
 export async function runIntake(
@@ -244,11 +245,18 @@ export async function runPlan(
     directFetches: retrieval.directFetches,
     tavilyRequestIds: retrieval.tavilyRequestIds,
   };
+  // Surface over-cap exclusions from the retrieval ledger as bounded plan
+  // warnings so the user sees which discovered sources never entered the
+  // ledger. Fetch/parse failures are already in retrieval.warnings.
+  const ledgerWarnings = retrieval.ledger.excluded
+    .filter((entry) => entry.reason.startsWith('Excluded by the six-source'))
+    .slice(0, 4)
+    .map((entry) => `${entry.host}: ${entry.reason}`);
   return validateEvidencePlan({
     modelPlan: output,
     sources: retrieval.sources,
     input,
     runtime: receipt,
-    initialWarnings: retrieval.warnings,
+    initialWarnings: [...retrieval.warnings, ...ledgerWarnings],
   });
 }

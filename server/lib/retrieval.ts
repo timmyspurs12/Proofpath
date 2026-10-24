@@ -6,6 +6,7 @@ import type { DocumentInput } from '../../src/shared/schemas';
 import type { Source, SourceCheck } from '../../src/shared/schemas';
 import { AppError } from './errors';
 import { logEvent } from './logger';
+import { MAX_PDF_BYTES, extractPdfText } from './pdf';
 import type { TavilyClient } from './tavily';
 
 const MAX_SOURCE_CHARACTERS = 30_000;
@@ -134,9 +135,9 @@ async function assertPublicUrl(value: string) {
   return url;
 }
 
-async function readBoundedBody(response: Response) {
+async function readBoundedBody(response: Response, cap = MAX_RESPONSE_BYTES) {
   const length = Number(response.headers.get('content-length') ?? 0);
-  if (length > MAX_RESPONSE_BYTES) {
+  if (length > cap) {
     throw new AppError(
       413,
       'SOURCE_TOO_LARGE',
@@ -144,7 +145,7 @@ async function readBoundedBody(response: Response) {
       false,
     );
   }
-  if (!response.body) return '';
+  if (!response.body) return Buffer.alloc(0);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -152,7 +153,7 @@ async function readBoundedBody(response: Response) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
+    if (size > cap) {
       await reader.cancel();
       throw new AppError(
         413,
@@ -163,7 +164,7 @@ async function readBoundedBody(response: Response) {
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
 
 // Generic registry-level labels used by governments worldwide. These are
@@ -200,6 +201,49 @@ function isStale(publishedAt: string | null, now = Date.now()) {
   return now - timestamp > 548 * 24 * 60 * 60 * 1000;
 }
 
+// Elements that are chrome, navigation, or machine data rather than the
+// page's substantive content. Removing them before text extraction keeps
+// menu/cookie/script words out of the passages the model can later quote.
+const HTML_DROP_SELECTOR =
+  'script, style, noscript, svg, canvas, iframe, template, nav, header, footer, form, [aria-hidden="true"], [role="navigation"]';
+const HTML_BLOCK_SELECTOR =
+  'br, p, li, h1, h2, h3, h4, h5, h6, tr, td, th, section, article, div, main, aside, blockquote, dt, dd, figcaption, summary, address';
+
+function extractHtml(raw: string, fallbackTitle: string, fallbackPublisher: string) {
+  const $ = cheerio.load(raw);
+  $(HTML_DROP_SELECTOR).remove();
+  $(HTML_BLOCK_SELECTOR).each((_, element) => {
+    $(element).append('\n');
+  });
+  const title =
+    $('meta[property="og:title"]').attr('content')?.trim() ||
+    $('title').first().text().trim() ||
+    fallbackTitle;
+  const publisher =
+    $('meta[property="og:site_name"]').attr('content')?.trim() ||
+    $('meta[name="publisher"]').attr('content')?.trim() ||
+    fallbackPublisher;
+  const publishedAt =
+    $('meta[property="article:published_time"]').attr('content')?.trim() ||
+    $('meta[name="date"]').attr('content')?.trim() ||
+    $('meta[name="last-modified"]').attr('content')?.trim() ||
+    $('time[datetime]').first().attr('datetime')?.trim() ||
+    null;
+  const main = $('main').first().length
+    ? $('main').first()
+    : $('[role="main"]').first().length
+      ? $('[role="main"]').first()
+      : $('article').first().length
+        ? $('article').first()
+        : $('body');
+  return { text: main.text(), title, publisher, publishedAt };
+}
+
+function filenameFromUrl(url: URL) {
+  const last = url.pathname.split('/').filter(Boolean).pop() ?? '';
+  return decodeURIComponent(last.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' ')).trim();
+}
+
 export async function fetchSource(
   value: string,
   id: string,
@@ -215,7 +259,7 @@ export async function fetchSource(
         redirect: 'manual',
         signal: controller.signal,
         headers: {
-          Accept: 'text/html,text/plain,application/xhtml+xml',
+          Accept: 'text/html,text/plain,application/xhtml+xml,application/pdf',
           'User-Agent': 'ProofPath/1.0 (+source-verification)',
         },
       });
@@ -242,45 +286,40 @@ export async function fetchSource(
       );
     }
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-    if (!/text\/html|text\/plain|application\/xhtml\+xml/.test(contentType)) {
-      throw new AppError(
-        422,
-        'SOURCE_UNSUPPORTED_TYPE',
-        'Only public HTML and plain-text sources are supported. PDF retrieval is not implemented.',
-        false,
-      );
-    }
-    const raw = await readBoundedBody(response);
+    const looksLikePdf =
+      contentType.includes('pdf') || /\.pdf(?:$|[?#])/i.test(url.pathname + url.search);
     let title = url.hostname;
     let publisher = url.hostname.replace(/^www\./, '');
     let publishedAt: string | null = null;
-    let text = raw;
-    if (contentType.includes('html') || contentType.includes('xhtml')) {
-      const $ = cheerio.load(raw);
-      $('script, style, noscript, svg, canvas, iframe, template').remove();
-      $('br, p, li, h1, h2, h3, h4, h5, h6, tr, section, article').each((_, element) => {
-        $(element).append('\n');
-      });
-      title =
-        $('meta[property="og:title"]').attr('content')?.trim() ||
-        $('title').first().text().trim() ||
-        title;
-      publisher =
-        $('meta[property="og:site_name"]').attr('content')?.trim() ||
-        $('meta[name="publisher"]').attr('content')?.trim() ||
-        publisher;
-      publishedAt =
-        $('meta[property="article:published_time"]').attr('content')?.trim() ||
-        $('meta[name="date"]').attr('content')?.trim() ||
-        $('meta[name="last-modified"]').attr('content')?.trim() ||
-        $('time[datetime]').first().attr('datetime')?.trim() ||
-        null;
-      const main = $('main').first().length
-        ? $('main').first()
-        : $('article').first().length
-          ? $('article').first()
-          : $('body');
-      text = main.text();
+    let text: string;
+
+    if (looksLikePdf) {
+      // Official announcements are frequently PDFs. Parse bounded bytes with
+      // the fail-closed PDF module; on failure the caller records the limit and
+      // backfills with another ranked candidate instead of inventing content.
+      const bytes = await readBoundedBody(response, MAX_PDF_BYTES);
+      const pdf = await extractPdfText(new Uint8Array(bytes));
+      text = pdf.text;
+      title = pdf.title || filenameFromUrl(url) || title;
+    } else {
+      if (!/text\/html|text\/plain|application\/xhtml\+xml/.test(contentType)) {
+        throw new AppError(
+          422,
+          'SOURCE_UNSUPPORTED_TYPE',
+          'Only public HTML, plain-text, and PDF sources are supported.',
+          false,
+        );
+      }
+      const raw = (await readBoundedBody(response)).toString('utf8');
+      if (contentType.includes('html') || contentType.includes('xhtml')) {
+        const parsed = extractHtml(raw, title, publisher);
+        text = parsed.text;
+        title = parsed.title;
+        publisher = parsed.publisher;
+        publishedAt = parsed.publishedAt;
+      } else {
+        text = raw;
+      }
     }
     const normalized = normalizeSourceText(text);
     if (normalized.length < 40) {
@@ -355,22 +394,122 @@ interface RetrieveOptions {
   tavily: TavilyClient;
 }
 
-// Stable, domain-agnostic ranking: official-host candidates come first so the
-// six-source retrieval budget cannot be consumed by secondary publishers when
-// official guidance is available. Original discovery order is kept within a tier.
-export function rankCandidateUrls(urls: string[]): string[] {
-  const unique = urls.filter((url, index) => urls.indexOf(url) === index);
-  const tier = (url: string) => {
+export interface RankedCandidate {
+  url: string;
+  title: string | null;
+  discovery: 'direct' | 'tavily';
+}
+
+export interface RankingContext {
+  goal: string;
+  searchQueries: string[];
+  jurisdiction: string;
+}
+
+const RANKING_STOPWORDS = new Set([
+  'that',
+  'this',
+  'with',
+  'from',
+  'your',
+  'yours',
+  'need',
+  'needs',
+  'will',
+  'must',
+  'should',
+  'they',
+  'them',
+  'then',
+  'than',
+  'when',
+  'where',
+  'which',
+  'what',
+  'who',
+  'how',
+  'about',
+  'into',
+  'have',
+  'been',
+  'being',
+]);
+
+function rankingTerms(context: RankingContext): string[] {
+  const text = [context.goal, context.jurisdiction, ...context.searchQueries]
+    .join(' ')
+    .toLowerCase();
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const word of text.match(/[a-z]{4,}/g) ?? []) {
+    if (RANKING_STOPWORDS.has(word) || seen.has(word)) continue;
+    seen.add(word);
+    terms.push(word);
+  }
+  return terms;
+}
+
+// Domain-agnostic ranking within the six-source cap: official-host authority
+// is the primary tier, relevance to the goal/queries/jurisdiction is the
+// secondary score, and user-supplied direct URLs win ties. No country table is
+// involved; malformed URLs sink to the bottom instead of throwing.
+export function rankCandidates(
+  candidates: RankedCandidate[],
+  context: RankingContext,
+): RankedCandidate[] {
+  const unique = candidates.filter(
+    (candidate, index) => candidates.findIndex((other) => other.url === candidate.url) === index,
+  );
+  const terms = rankingTerms(context);
+  const scored = unique.map((candidate, index) => {
+    let authorityTier = 1;
+    let haystack = '';
     try {
-      return authorityForHostname(new URL(url).hostname) === 'official' ? 0 : 1;
+      const parsed = new URL(candidate.url);
+      authorityTier = authorityForHostname(parsed.hostname) === 'official' ? 0 : 1;
+      haystack = `${parsed.hostname} ${parsed.pathname.replace(/[-_/]+/g, ' ')} ${
+        candidate.title ?? ''
+      }`.toLowerCase();
     } catch {
-      return 1;
+      authorityTier = 2;
+      haystack = candidate.url.toLowerCase();
     }
-  };
-  return unique
-    .map((url, index) => ({ url, index, tier: tier(url) }))
-    .sort((a, b) => a.tier - b.tier || a.index - b.index)
-    .map((entry) => entry.url);
+    const relevance = terms.reduce(
+      (score, term) => (haystack.includes(term) ? score + 1 : score),
+      0,
+    );
+    const directBonus = candidate.discovery === 'direct' ? 1 : 0;
+    const score = relevance * 10 + directBonus - authorityTier * 1000;
+    return { candidate, index, score };
+  });
+  return scored
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.candidate);
+}
+
+// Backwards-compatible URL-only ranking: authority tier first, stable
+// discovery order within a tier.
+export function rankCandidateUrls(urls: string[]): string[] {
+  return rankCandidates(
+    urls.map((url) => ({ url, title: null, discovery: 'tavily' as const })),
+    { goal: '', searchQueries: [], jurisdiction: '' },
+  ).map((candidate) => candidate.url);
+}
+
+export interface RetrievalLedger {
+  discovered: number;
+  fetched: number;
+  parsed: number;
+  selected: string[];
+  excluded: Array<{ host: string; reason: string }>;
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'unknown source';
+  }
 }
 
 export async function retrieveSources(options: RetrieveOptions) {
@@ -380,9 +519,13 @@ export async function retrieveSources(options: RetrieveOptions) {
 
   let tavilyCalls = 0;
   let tavilyRequestIds: string[] = [];
-  let discoveredUrls: string[] = [];
-  const hasCapacity = () =>
-    options.directUrls.length + sources.length + discoveredUrls.length < MAX_SOURCES;
+  const candidates: RankedCandidate[] = options.directUrls.map((url) => ({
+    url,
+    title: null,
+    discovery: 'direct' as const,
+  }));
+  const seenUrls = new Set(options.directUrls);
+  const hasCapacity = () => candidates.length + sources.length < MAX_SOURCES;
   if (options.tavily.configured && hasCapacity()) {
     // Intake may supply up to two targeted queries. Running each one gives
     // unresolved instructions (for example submission or tracking guidance)
@@ -403,8 +546,15 @@ export async function retrieveSources(options: RetrieveOptions) {
         const discovery = await options.tavily.discover(scoped(query));
         tavilyCalls += 1;
         tavilyRequestIds.push(...discovery.requestIds);
-        for (const url of discovery.urls) {
-          if (!discoveredUrls.includes(url)) discoveredUrls.push(url);
+        const results = discovery.results ?? discovery.urls.map((url) => ({ url, title: null }));
+        for (const result of results) {
+          if (seenUrls.has(result.url)) continue;
+          seenUrls.add(result.url);
+          candidates.push({
+            url: result.url,
+            title: result.title,
+            discovery: 'tavily',
+          });
         }
       } catch (error) {
         warnings.push(
@@ -417,20 +567,33 @@ export async function retrieveSources(options: RetrieveOptions) {
     tavilyRequestIds = tavilyRequestIds.slice(0, 2);
   }
 
-  const rankedUrls = rankCandidateUrls([...options.directUrls, ...discoveredUrls]);
+  const ranked = rankCandidates(candidates, {
+    goal: options.goal,
+    searchQueries: options.searchQueries,
+    jurisdiction: options.jurisdiction,
+  });
   const remaining = Math.max(0, MAX_SOURCES - sources.length);
   // The queue holds ranked candidates beyond the first batch so that a failed
   // fetch can be replaced by the next-ranked official or secondary source
   // instead of silently consuming part of the six-source budget.
-  const queue = rankedUrls.map((url) => ({
-    url,
-    retrieval: options.directUrls.includes(url) ? ('direct' as const) : ('tavily' as const),
-  }));
+  const queue = ranked.map((candidate) => ({ ...candidate }));
   const selected = queue.splice(0, remaining);
-  if (rankedUrls.length > remaining)
-    warnings.push(
-      'Only the first six sources were used; additional source URLs were not retrieved.',
-    );
+  const ledger: RetrievalLedger = {
+    discovered: ranked.length,
+    fetched: 0,
+    parsed: 0,
+    selected: selected.map((candidate) => hostOf(candidate.url)),
+    excluded: [],
+  };
+  // Every discovered candidate outside the six-source cap is reported with a
+  // reason rather than dropped silently.
+  for (const candidate of queue) {
+    ledger.excluded.push({
+      host: hostOf(candidate.url),
+      reason:
+        'Excluded by the six-source retrieval cap after higher-ranked candidates were selected.',
+    });
+  }
 
   if (!sources.length && !selected.length) {
     throw new AppError(
@@ -444,26 +607,23 @@ export async function retrieveSources(options: RetrieveOptions) {
   }
 
   const describeFailure = (url: string, reason: unknown) => {
-    const hostname = (() => {
-      try {
-        return new URL(url).hostname;
-      } catch {
-        return 'A source';
-      }
-    })();
+    const host = hostOf(url);
     const detail = reason instanceof AppError ? reason.message : 'retrieval failed';
-    warnings.push(`${hostname}: ${detail}`);
+    warnings.push(`${host}: ${detail}`);
+    ledger.excluded.push({ host, reason: detail });
   };
 
   const results = await Promise.allSettled(
     selected.map((candidate, index) =>
-      fetchSource(candidate.url, `S${sources.length + index + 1}`, candidate.retrieval),
+      fetchSource(candidate.url, `S${sources.length + index + 1}`, candidate.discovery),
     ),
   );
+  ledger.fetched = selected.length;
   let failureCount = 0;
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       sources.push(result.value);
+      ledger.parsed += 1;
     } else {
       failureCount += 1;
       describeFailure(selected[index].url, result.reason);
@@ -480,19 +640,24 @@ export async function retrieveSources(options: RetrieveOptions) {
     const candidate = queue.shift();
     if (!candidate) break;
     const id = `S${sources.length + selected.length + backfills + 1}`;
+    ledger.fetched += 1;
     try {
-      sources.push(await fetchSource(candidate.url, id, candidate.retrieval));
+      sources.push(await fetchSource(candidate.url, id, candidate.discovery));
+      ledger.parsed += 1;
+      ledger.selected.push(hostOf(candidate.url));
     } catch (error) {
       describeFailure(candidate.url, error);
     }
     backfills += 1;
   }
+  // A backfilled candidate was selected for the ledger even if its fetch failed.
+  ledger.selected = [...new Set(ledger.selected)];
 
   if (!sources.length) {
     throw new AppError(
       422,
       'NO_USABLE_SOURCES',
-      'None of the sources could be read. Add a readable official page or text document.',
+      'None of the sources could be read. Add a readable official page, PDF, or text document.',
       false,
       warnings,
     );
@@ -519,7 +684,15 @@ export async function retrieveSources(options: RetrieveOptions) {
     tavily_calls: tavilyCalls,
     warnings: warnings.length,
   });
-  return { sources, warnings, tavilyCalls, tavilyRequestIds, directFetches };
+  // Sanitized ledger: hosts, counts and reasons only — never source contents.
+  logEvent('retrieval_ledger', {
+    discovered: ledger.discovered,
+    fetched: ledger.fetched,
+    parsed: ledger.parsed,
+    selected: JSON.stringify(ledger.selected),
+    excluded: JSON.stringify(ledger.excluded.slice(0, 8)),
+  });
+  return { sources, warnings, tavilyCalls, tavilyRequestIds, directFetches, ledger };
 }
 
 export async function verifySourceList(

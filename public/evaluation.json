@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ranAt": "2026-10-24T10:45:39.135Z",
+  "ranAt": "2026-10-24T17:32:44.424Z",
   "mode": "deterministic-fixtures",
   "liveModel": false,
   "model": null,
@@ -25,7 +25,7 @@
     "providerFailureCases": 3,
     "universalityCasesPassed": 11,
     "universalityCases": 11,
-    "medianFixtureLatencyMs": 0.71
+    "medianFixtureLatencyMs": 0.57
   },
   "definitions": {
     "citationCoverage": "Final source-supported steps divided by all steps in the deterministic evidence fixtures.",
