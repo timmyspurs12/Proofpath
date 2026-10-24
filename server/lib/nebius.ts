@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getConfig, type AppConfig } from '../config';
 import { AppError } from './errors';
 import { logEvent } from './logger';
+import { extractModelJson } from './model-json';
 import type { RuntimeReceipt } from '../../src/shared/schemas';
 
 interface CompletionRequest {
@@ -101,6 +102,11 @@ export class NebiusClient {
             max_tokens: request.maxTokens,
             store: false,
             stream: false,
+            // Nemotron-3-Nano defaults to enabled reasoning; the Token Factory
+            // chat template emits <think> traces into message.content when it is
+            // on, which breaks JSON parsing. Disable it for structured requests
+            // (official Token Factory cookbook chat_template_kwargs contract).
+            chat_template_kwargs: { enable_thinking: false },
           }),
         });
 
@@ -141,10 +147,20 @@ export class NebiusClient {
           );
         }
 
-        let json: unknown;
-        try {
-          json = JSON.parse(message.content);
-        } catch {
+        // Structured-output enforcement is model-dependent on Token Factory:
+        // tolerate reasoning traces, code fences and prose wrappers, but never
+        // accept a value that fails the full schema below.
+        const extracted = extractModelJson(message.content);
+        if (!extracted.ok) {
+          // Sanitized diagnostics only: lengths, wrapper counts and strategy
+          // names. Never log model text, prompts, or credentials.
+          logEvent('nebius_model_json_failed', {
+            operation: request.operation,
+            content_length: extracted.diagnostics.contentLength,
+            truncated: extracted.diagnostics.truncated,
+            think_blocks_removed: extracted.diagnostics.thinkBlocksRemoved,
+            code_fence_found: extracted.diagnostics.codeFenceFound,
+          });
           throw new AppError(
             502,
             'INVALID_MODEL_JSON',
@@ -152,8 +168,16 @@ export class NebiusClient {
             true,
           );
         }
-        const output = outputSchema.safeParse(json);
+        const output = outputSchema.safeParse(extracted.value);
         if (!output.success) {
+          const firstIssue = output.error.issues[0];
+          logEvent('nebius_model_schema_failed', {
+            operation: request.operation,
+            issue_count: output.error.issues.length,
+            first_path: firstIssue?.path.join('.') ?? null,
+            first_code: firstIssue?.code ?? null,
+            parse_strategy: extracted.diagnostics.parseStrategy,
+          });
           throw new AppError(
             502,
             'INVALID_MODEL_SCHEMA',
@@ -183,6 +207,8 @@ export class NebiusClient {
           latency_ms: latencyMs,
           input_tokens: inputTokens,
           output_tokens: outputTokens,
+          parse_strategy: extracted.diagnostics.parseStrategy,
+          think_blocks_removed: extracted.diagnostics.thinkBlocksRemoved,
         });
         return { output: output.data, receipt };
       } catch (error) {

@@ -59,7 +59,7 @@ Task + jurisdiction + category + optional text document/source URLs
 
 - Server-only `NEBIUS_API_KEY`; configurable HTTPS base URL restricted to Nebius Token Factory hosts.
 - Default `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`; model ID must start `nvidia/`.
-- JSON Schema requested and Zod enforced; malformed outputs fail closed.
+- JSON Schema requested and Zod enforced; malformed outputs fail closed. Requests set `chat_template_kwargs.enable_thinking=false` because Nemotron-3-Nano emits `<think>` reasoning traces into `message.content` by default. Transport wrappers (reasoning tags, Markdown fences, surrounding prose) are stripped by a bounded extractor, but the recovered value must still pass the full Zod schema; no unvalidated claim is ever accepted and parse/schema failures remain explicit `INVALID_MODEL_JSON` / `INVALID_MODEL_SCHEMA` errors with sanitized, content-free diagnostics.
 - Intake timeout 20s with at most two attempts and jittered backoff for retryable failures; plan timeout 35s with one attempt so retrieval + inference stays within the declared 60-second function budget. Users can explicitly retry a failed plan. Tavily discovery is capped at 10s and each source retrieval at 8s.
 - Maximum task/document/source sizes, six retrieved sources, bounded extracted text, and per-instance best-effort IP rate limits.
 - Logs contain request ID, route, status, model, latency, and token counts—never task text, source content, API keys, or saved plan contents.
