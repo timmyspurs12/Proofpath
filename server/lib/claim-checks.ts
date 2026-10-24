@@ -269,6 +269,100 @@ export function instructionTerms(text: string): string[] {
   return terms;
 }
 
+// Process-generic vocabulary that appears in nearly every administrative
+// instruction regardless of its subject. Lexical overlap on these words alone
+// (for example a source negating "the application" while an instruction talks
+// about a different application stage) cannot establish that the same
+// requirement is being contradicted. Domain-neutral by construction; the
+// universality guard forbids naming any document type or country here.
+const GENERIC_PROCESS_TERMS = new Set([
+  'application',
+  'applications',
+  'applicant',
+  'applicants',
+  'apply',
+  'applying',
+  'renewal',
+  'renew',
+  'renewing',
+  'process',
+  'service',
+  'services',
+  'request',
+  'requested',
+  'requests',
+  'requirement',
+  'requirements',
+  'required',
+  'require',
+  'requires',
+  'complete',
+  'completed',
+  'completing',
+  'completion',
+  'information',
+  'details',
+  'guidance',
+  'official',
+  'current',
+  'confirmation',
+  'account',
+  'access',
+  'submit',
+  'submission',
+  'submitted',
+  'submitting',
+]);
+
+// Single-token channel/route vocabulary mirrored from ROUTE_MARKER_GROUPS.
+// A negated route word only contradicts an instruction when the clause has no
+// different substantive subject of its own.
+const ROUTE_TERMS = new Set([
+  'online',
+  'digital',
+  'digitally',
+  'post',
+  'postal',
+  'mail',
+  'paper',
+  'counter',
+  'embassy',
+  'consulate',
+  'consular',
+  'mission',
+]);
+
+// Returns the instruction terms actually negated by a clause, requiring
+// subject/action alignment rather than mere lexical overlap:
+// - a negated distinctive content term shared with the instruction aligns;
+// - generic process vocabulary never aligns on its own;
+// - a route word aligns only when the clause negates the channel itself
+//   (its own content terms are all instruction terms), so a clause about
+//   photographs or internet facilities cannot negate an unrelated step that
+//   happens to mention the same channel.
+// Comparison with simple English plural tolerance (form/forms, fee/fees);
+// matching stays token-based and never crosses onto another word stem.
+function termAppears(term: string, terms: string[]): boolean {
+  if (terms.includes(term)) return true;
+  const variants = new Set([term.replace(/s$/, ''), `${term}s`, `${term.replace(/s$/, '')}es`]);
+  return terms.some((candidate) => variants.has(candidate));
+}
+
+function alignedNegatedTerms(clause: string, terms: string[]): string[] {
+  const hits = negatedTermsInSentence(clause, terms);
+  if (!hits.length) return [];
+  const contentHits = hits.filter(
+    (term) => !GENERIC_PROCESS_TERMS.has(term) && !ROUTE_TERMS.has(term),
+  );
+  if (contentHits.length) return contentHits;
+  const routeHits = hits.filter((term) => ROUTE_TERMS.has(term));
+  if (!routeHits.length) return [];
+  const clauseSubjectTerms = instructionTerms(clause).filter(
+    (term) => !GENERIC_PROCESS_TERMS.has(term) && !ROUTE_TERMS.has(term),
+  );
+  return clauseSubjectTerms.every((term) => termAppears(term, terms)) ? routeHits : [];
+}
+
 function splitSentences(text: string): string[] {
   return text
     .split(/\n+|(?<=[.!?])\s+/)
@@ -305,9 +399,11 @@ function negatedTermsInSentence(sentence: string, terms: string[]): string[] {
   for (const term of terms) {
     const termIndex = tokens.findIndex((token) => token === term);
     if (termIndex < 0) continue;
-    const cued = cueIndexes.some(
-      (cueIndex) => cueIndex < termIndex && termIndex - cueIndex <= NEGATION_WINDOW,
-    );
+    // Symmetric window: covers both imperative negation ("do not post the
+    // form") and copular negation where the subject comes first ("the fee is
+    // not required"). The scope, circumstance and alignment gates downstream
+    // decide whether the negated word actually concerns the instruction.
+    const cued = cueIndexes.some((cueIndex) => Math.abs(termIndex - cueIndex) <= NEGATION_WINDOW);
     if (cued && !hit.includes(term)) hit.push(term);
   }
   return hit;
@@ -337,6 +433,58 @@ const ROUTE_MARKER_GROUPS: Array<{
 ];
 const ABROAD_MARKERS = /\b(?:abroad|overseas|from outside|living outside)\b/i;
 const CONDITION_LEAD = /\b(?:if|when|where|unless)\b/i;
+
+// Consular and out-of-jurisdiction contexts, including a bare mission mention
+// and diaspora wording. Kept domain-neutral: no agency, city or country names.
+const ABROAD_CONTEXT =
+  /\b(?:abroad|overseas|diaspora|consular|consulate|embassy|high commission|diplomatic mission|mission|from outside|living outside)\b/i;
+
+// Applicant-circumstance vocabulary inside a conditional clause. A requirement
+// negated only for a different applicant category (a minor, a guardian-led
+// application) cannot contradict an instruction whose applicant is outside
+// that category.
+const AGE_CIRCUMSTANCE =
+  /\bunder\s+\d{1,3}\b|\baged?\s+\d{1,3}\b|\b\d{1,3}\s+years?\s+(?:old|and under|or under)\b|\bminor(?:s)?\b|\bjuvenile\b|\binfants?\b/i;
+const DEPENDENT_CIRCUMSTANCE = /\bguardians?\b|\bparental\b|\bparents?\b|\bchild(?:ren)?\b/i;
+
+type Circumstance = 'age' | 'dependent';
+
+function conditionalCircumstance(sentence: string): Circumstance | null {
+  if (!CONDITION_LEAD.test(sentence)) return null;
+  if (AGE_CIRCUMSTANCE.test(sentence)) return 'age';
+  if (DEPENDENT_CIRCUMSTANCE.test(sentence)) return 'dependent';
+  return null;
+}
+
+function instructionCoversCircumstance(instruction: string, circumstance: Circumstance): boolean {
+  return circumstance === 'age'
+    ? AGE_CIRCUMSTANCE.test(instruction)
+    : DEPENDENT_CIRCUMSTANCE.test(instruction);
+}
+
+// Sentence-level scope gate evaluated BEFORE clauses are split, so route and
+// location context in one clause cannot be lost by punctuation in the next.
+// A passage is out of scope when every transaction route it names differs
+// from the requested routes, or when its location context (domestic versus
+// abroad/consular) is the opposite of the request's. A passage naming no
+// scope at all remains eligible and is decided by term alignment instead.
+function sentenceIsOutOfScope(
+  sentence: string,
+  route: RouteContext,
+  requestedRouteKeys: Set<string>,
+): boolean {
+  const sentenceRoutes = routesMentionedInSentence(sentence);
+  if (
+    requestedRouteKeys.size &&
+    sentenceRoutes.size &&
+    [...sentenceRoutes].every((key) => !requestedRouteKeys.has(key))
+  ) {
+    return true;
+  }
+  if (!route.abroad && ABROAD_CONTEXT.test(sentence)) return true;
+  if (route.abroad && DOMESTIC_SCOPE.test(sentence)) return true;
+  return false;
+}
 
 function sentenceMentionsTerm(sentence: string, terms: string[]) {
   const lower = sentence.toLowerCase();
@@ -480,15 +628,15 @@ export function findInstructionContradictions(
     );
     for (const source of input.sources) {
       for (const sentence of splitSentences(source.text)) {
-        const sentenceRoutes = routesMentionedInSentence(sentence);
-        if (
-          requestedRouteKeys.size &&
-          sentenceRoutes.size &&
-          [...sentenceRoutes].every((key) => !requestedRouteKeys.has(key))
-        ) {
-          continue;
-        }
-        if (ABROAD_MARKERS.test(sentence) !== input.route.abroad && sentenceRoutes.size) {
+        // Scope first: a consular/diaspora passage or an incompatible route
+        // cannot negate a domestic instruction (and vice versa), regardless of
+        // which later clause carries the negation cue.
+        if (sentenceIsOutOfScope(sentence, input.route, requestedRouteKeys)) continue;
+        // A negation conditional on a different applicant circumstance (for
+        // example an age or guardian condition the instruction never mentions)
+        // describes another application type, not this one.
+        const circumstance = conditionalCircumstance(sentence);
+        if (circumstance && !instructionCoversCircumstance(input.instruction, circumstance)) {
           continue;
         }
         const clauses = sentence
@@ -496,7 +644,10 @@ export function findInstructionContradictions(
           .map((clause) => clause.trim())
           .filter((clause) => clause.length >= 5);
         for (const clause of clauses) {
-          if (!negatedTermsInSentence(clause, terms).length) continue;
+          // The negated words must concern the same subject or action as the
+          // instruction, in the same route and context. Generic process words
+          // or an unrelated clause subject are not enough.
+          if (!alignedNegatedTerms(clause, terms).length) continue;
           // A clause negating a fee cannot contradict an instruction that
           // makes no monetary claim at all.
           if (MONEY_CLAUSE.test(clause) && !instructionMentionsMoney) continue;
@@ -516,14 +667,15 @@ export function findInstructionContradictions(
       ROUTE_MARKER_GROUPS.map((group) => group.key).filter((key) => input.route[key]),
     );
     if (requestedRoutes.size) {
+      // Generic process words cannot establish that the conditional
+      // requirement concerns this step's subject; require a distinctive term.
+      const distinctiveTerms = terms.filter((term) => !GENERIC_PROCESS_TERMS.has(term));
       for (const source of input.sources) {
         for (const sentence of splitSentences(source.text)) {
-          if (!CONDITION_LEAD.test(sentence) || !sentenceMentionsTerm(sentence, terms)) continue;
-          const sentenceRoutes = routesMentionedInSentence(sentence);
-          if (
-            sentenceRoutes.size &&
-            [...sentenceRoutes].every((key) => !requestedRoutes.has(key))
-          ) {
+          if (!CONDITION_LEAD.test(sentence) || !sentenceMentionsTerm(sentence, distinctiveTerms)) {
+            continue;
+          }
+          if (sentenceIsOutOfScope(sentence, input.route, requestedRoutes)) {
             push(
               'conditional-route',
               'Support withdrawn: a retrieved source makes this requirement conditional on a different application route than the one requested.',
