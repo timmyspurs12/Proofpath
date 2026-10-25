@@ -1,14 +1,14 @@
 import type { ContradictionDiagnostic, ContradictionReasonCode } from '../server/lib/claim-checks';
-import type { EvidenceMetrics } from '../server/lib/evidence';
-import type { RetrievedSource } from '../server/lib/retrieval';
+import type { EvidenceMetrics, ModelPlan } from '../server/lib/evidence';
+import { hashText, type RetrievedSource } from '../server/lib/retrieval';
 import type { Plan, TaskInput } from '../src/shared/schemas';
 import type { TrapClassDefinition } from './live-cases/nigeria-domestic-renewal';
 
 // Pure, side-effect-free acceptance evaluation for live verification runs.
 // It contains no provider client and performs no network or filesystem work,
 // so the evidence-quality verdict is fully unit-testable offline. Case-
-// specific wording (jurisdiction, hosts, trap patterns) arrives through the
-// LiveCaseDefinition; nothing here teaches the universal engine a country.
+// specific wording (jurisdiction, hosts, trap relationships) arrives through
+// the LiveCaseDefinition; nothing here teaches the universal engine a country.
 
 export interface LiveCaseDefinition {
   caseId: string;
@@ -36,6 +36,34 @@ export interface RequestedUrlOutcome {
   contentHash: string | null;
   excerptLength: number;
   warning: string | null;
+  // True only when every live-retrieval provenance requirement holds; a bare
+  // URL, a model citation or a malformed/missing timestamp never qualifies.
+  liveRetrievalQualified: boolean;
+  provenanceIssues: string[];
+}
+
+// How a single contradiction decision on trap material relates to the step it
+// targets, resolved from the actual step title/instruction and source passage.
+export type TrapObservationClassification =
+  | 'legitimate' // same subject/route/circumstance/location: a valid downgrade
+  | 'false-positive' // protected unrelated step was downgraded
+  | 'protected-not-downgraded' // protected step, but no downgrade occurred
+  | 'unclassified' // no case relationship covers this observed decision
+  | 'unresolved'; // the diagnostic step id could not be resolved
+
+export interface TrapObservation {
+  trapId: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  sentence: string;
+  clause: string | null;
+  reasonCode: ContradictionReasonCode;
+  modelStepId: string | null;
+  finalStepId: string | null;
+  stepTitle: string | null;
+  stepInstruction: string | null;
+  finalStepStatus: string | null;
+  classification: TrapObservationClassification;
 }
 
 export interface TrapCoverage {
@@ -50,6 +78,7 @@ export interface TrapCoverage {
   // (no negation cue, no decision needed) is reported, not counted as a gap.
   exercised: boolean;
   detail: string;
+  observations: TrapObservation[];
 }
 
 export interface CaseAcceptanceResult {
@@ -60,6 +89,8 @@ export interface CaseAcceptanceResult {
   reasons: string[];
   requestedUrlOutcomes: RequestedUrlOutcome[];
   trapCoverage: TrapCoverage[];
+  falsePositiveViolations: string[];
+  legitimateContradictions: number;
   contradictionCount: number;
   reasonCodeCounts: Record<string, number>;
 }
@@ -84,7 +115,17 @@ export const KNOWN_REASON_CODES: ReadonlySet<ContradictionReasonCode> = new Set(
   'skipped-no-distinctive-term',
 ]);
 
-function hostOf(url: string): string {
+// Retrieval routes that prove the source entered through the live retrieval
+// pipeline. Uploaded documents and bundled samples are not live retrievals.
+const LIVE_RETRIEVAL_ROUTES = new Set(['direct', 'tavily']);
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const SHA256 = /^[a-f0-9]{64}$/;
+// Retrieval is accepted as fresh when the stored timestamp is inside this
+// skew around the run window; clock-independent structural checks always run.
+const RETRIEVAL_SKEW_MS = 5 * 60 * 1000;
+
+function hostOf(url: string | null | undefined): string {
+  if (!url) return 'unknown source';
   try {
     return new URL(url).hostname.toLowerCase();
   } catch {
@@ -95,6 +136,50 @@ function hostOf(url: string): string {
 export function isOfficialHost(host: string, suffixes: readonly string[]): boolean {
   const normalized = host.toLowerCase();
   return suffixes.some((suffix) => normalized === suffix || normalized.endsWith(`.${suffix}`));
+}
+
+function parseTimestamp(value: string | null | undefined): number | null {
+  if (!value || !ISO_TIMESTAMP.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// The full provenance contract a source must satisfy before it can evidence
+// a live retrieval. Every failure mode is returned as an explicit issue.
+function provenanceIssues(
+  entry: RetrievedSource,
+  definition: LiveCaseDefinition,
+  runStartedAt: string | undefined,
+  evaluatedAtMs: number,
+): string[] {
+  const issues: string[] = [];
+  const source = entry.source;
+  const host = hostOf(source.url);
+  if (!source.url) issues.push('source has no URL');
+  else if (!isOfficialHost(host, definition.officialHostSuffixes))
+    issues.push(`host ${host} is not an allowed official hostname`);
+  if (source.authority !== 'official')
+    issues.push(`authority is "${source.authority}", expected "official"`);
+  if (source.excerpt.trim().length === 0) issues.push('excerpt is empty');
+  if (!source.title.trim()) issues.push('pipeline title metadata is missing');
+  if (!source.publisher.trim()) issues.push('pipeline publisher metadata is missing');
+  if (!LIVE_RETRIEVAL_ROUTES.has(source.retrieval))
+    issues.push(`retrieval route "${source.retrieval}" is not a live direct/tavily fetch`);
+  if (!SHA256.test(source.contentHash)) issues.push('content hash is not a 64-hex sha256');
+  else if (hashText(entry.text) !== source.contentHash)
+    issues.push('content hash does not match the retrieved text');
+  const stampMs = parseTimestamp(source.retrievedAt);
+  if (stampMs === null) issues.push('retrieval timestamp is missing or not parseable ISO-8601');
+  else if (runStartedAt) {
+    const startMs = parseTimestamp(runStartedAt);
+    if (startMs !== null) {
+      if (stampMs < startMs - RETRIEVAL_SKEW_MS)
+        issues.push('retrieval timestamp predates the live run window (frozen or stale stamp)');
+      if (stampMs > evaluatedAtMs + RETRIEVAL_SKEW_MS)
+        issues.push('retrieval timestamp is in the future beyond clock skew');
+    }
+  }
+  return issues;
 }
 
 function stepText(step: Plan['steps'][number]): string {
@@ -109,6 +194,9 @@ export function deriveRequestedUrlOutcomes(
   request: TaskInput,
   sources: RetrievedSource[],
   warnings: string[],
+  definition: LiveCaseDefinition,
+  runStartedAt: string | undefined,
+  evaluatedAtMs: number,
 ): RequestedUrlOutcome[] {
   return request.sourceUrls.map((url) => {
     const host = hostOf(url);
@@ -127,8 +215,11 @@ export function deriveRequestedUrlOutcomes(
         contentHash: null,
         excerptLength: 0,
         warning,
+        liveRetrievalQualified: false,
+        provenanceIssues: ['URL was requested but no source was retrieved'],
       };
     }
+    const issues = provenanceIssues(match, definition, runStartedAt, evaluatedAtMs);
     return {
       url,
       outcome: 'retrieved',
@@ -140,69 +231,166 @@ export function deriveRequestedUrlOutcomes(
       contentHash: match.source.contentHash,
       excerptLength: match.source.excerpt.length,
       warning,
+      liveRetrievalQualified: issues.length === 0,
+      provenanceIssues: issues,
     };
   });
+}
+
+function clip(value: string, max = 160): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+// Resolves a diagnostic's model step id to the final plan step. validateEvidencePlan
+// renumbers model steps positionally to step-N; the model plan is required so
+// the acceptance layer can reproduce that mapping without any engine change.
+function buildStepResolver(modelPlan: ModelPlan, plan: Plan) {
+  const modelToFinal = new Map(
+    modelPlan.steps.map((step, index) => [step.id, `step-${index + 1}`]),
+  );
+  return (modelStepId: string | null) => {
+    if (!modelStepId) return null;
+    const finalId = modelToFinal.get(modelStepId);
+    if (!finalId) return null;
+    return plan.steps.find((step) => step.id === finalId) ?? null;
+  };
 }
 
 function evaluateTrapCoverage(
   definition: LiveCaseDefinition,
   diagnostics: ContradictionDiagnostic[],
   sources: RetrievedSource[],
-): TrapCoverage[] {
-  return definition.trapClasses.map((trap) => {
+  modelPlan: ModelPlan,
+  plan: Plan,
+): { coverage: TrapCoverage[]; violations: string[]; legitimate: number } {
+  const resolveStep = buildStepResolver(modelPlan, plan);
+  const sourceById = new Map(sources.map((entry) => [entry.source.id, entry]));
+  const violations: string[] = [];
+  let legitimate = 0;
+
+  const coverage: TrapCoverage[] = definition.trapClasses.map((trap) => {
     const materialSources = sources.filter((entry) => trap.passagePattern.test(entry.text));
     const hits = diagnostics.filter((entry) => {
-      const haystack = `${entry.sentence} ${entry.clause ?? ''}`;
-      return trap.passagePattern.test(haystack);
+      if (entry.decision !== 'contradiction') return false;
+      const passageText = entry.sentence || entry.clause || '';
+      if (passageText && trap.passagePattern.test(passageText)) return true;
+      // Currency-section diagnostics carry no sentence: associate them via
+      // the genuinely retrieved source they cite, but only when the trap
+      // class explicitly opts in with a currency-specific pattern, so one
+      // source-level record cannot fan out across unrelated trap classes.
+      if (!passageText) {
+        if (!trap.currencyPassagePattern) return false;
+        const cited = sourceById.get(entry.sourceId);
+        return Boolean(cited && trap.currencyPassagePattern.test(cited.text));
+      }
+      return false;
     });
+
+    const observations: TrapObservation[] = hits.map((diagnostic) => {
+      const base = {
+        trapId: trap.id,
+        sourceId: diagnostic.sourceId,
+        sourceUrl: sourceById.get(diagnostic.sourceId)?.source.url ?? null,
+        sentence: diagnostic.sentence,
+        clause: diagnostic.clause,
+        reasonCode: diagnostic.reasonCode,
+        modelStepId: diagnostic.instructionId,
+      };
+      const step = resolveStep(diagnostic.instructionId);
+      if (!step) {
+        return {
+          ...base,
+          finalStepId: null,
+          stepTitle: null,
+          stepInstruction: null,
+          finalStepStatus: null,
+          classification: 'unresolved' as const,
+        };
+      }
+      const targetText = stepText(step);
+      let classification: TrapObservationClassification;
+      if (trap.applicableStepPattern.test(targetText)) {
+        classification = 'legitimate';
+        legitimate += 1;
+      } else if (trap.protectedStepPattern.test(targetText)) {
+        classification =
+          step.status === 'unverifiable' ? 'false-positive' : 'protected-not-downgraded';
+      } else {
+        classification = 'unclassified';
+      }
+      return {
+        ...base,
+        finalStepId: step.id,
+        stepTitle: step.title,
+        stepInstruction: step.instruction,
+        finalStepStatus: step.status,
+        classification,
+      };
+    });
+
+    for (const observation of observations) {
+      if (observation.classification === 'false-positive') {
+        violations.push(
+          `${trap.id}: source ${observation.sourceId} passage "${clip(observation.sentence || observation.clause || '(currency record)')}" ` +
+            `downgraded protected step "${observation.stepTitle}" (${observation.finalStepId}, ${observation.reasonCode})`,
+        );
+      } else if (observation.classification === 'unclassified') {
+        violations.push(
+          `${trap.id}: contradiction (${observation.reasonCode}) on "${clip(observation.sentence || '(currency record)')}" ` +
+            `targets step "${observation.stepTitle}", which matches no expected relationship; manual review required before acceptance`,
+        );
+      } else if (observation.classification === 'unresolved') {
+        violations.push(
+          `${trap.id}: contradiction (${observation.reasonCode}) on "${clip(observation.sentence || '(currency record)')}" ` +
+            `has an unresolvable step id ${String(observation.modelStepId)}; the downgrade target cannot be audited`,
+        );
+      }
+    }
+
     const materialRetrieved = materialSources.length > 0;
     const evaluated = hits.length > 0;
-    if (!materialRetrieved) {
-      return {
-        trapId: trap.id,
-        label: trap.label,
-        materialRetrieved: false,
-        evaluated: false,
-        exercised: false,
-        detail: 'No retrieved source contains material for this trap class in the live run.',
-      };
-    }
-    if (!evaluated) {
-      return {
-        trapId: trap.id,
-        label: trap.label,
-        materialRetrieved: true,
-        evaluated: false,
-        exercised: false,
-        detail: `Relevant material retrieved from ${materialSources.length} source(s), but every matching passage was affirmative or out of scope, so no contradiction decision was required.`,
-      };
-    }
     const reasonCodes = [...new Set(hits.map((entry) => entry.reasonCode))];
-    const contradictions = hits.filter((entry) => entry.decision === 'contradiction').length;
+    const contradictions = hits.length;
+    const detail = !materialRetrieved
+      ? 'No retrieved source contains material for this trap class in the live run.'
+      : !evaluated
+        ? `Relevant material retrieved from ${materialSources.length} source(s), but every matching passage was affirmative or out of scope, so no contradiction decision was required.`
+        : `${contradictions} contradiction decision(s); reason codes: ${reasonCodes.join(', ')}; classifications: ${observations
+            .map((entry) => entry.classification)
+            .join(', ')}`;
+
     return {
       trapId: trap.id,
       label: trap.label,
-      materialRetrieved: true,
-      evaluated: true,
-      exercised: true,
-      detail: `${hits.length} diagnostic record(s); ${contradictions} contradiction decision(s); reason codes: ${reasonCodes.join(', ')}`,
+      materialRetrieved,
+      evaluated,
+      exercised: materialRetrieved && evaluated,
+      detail,
+      observations,
     };
   });
+
+  return { coverage, violations, legitimate };
 }
 
 export interface EvaluationInput {
   request: TaskInput;
+  modelPlan: ModelPlan;
   plan: Plan;
   metrics: EvidenceMetrics;
   diagnostics: ContradictionDiagnostic[];
   sources: RetrievedSource[];
+  // ISO timestamp captured immediately before the live run starts. When
+  // omitted, only structural provenance checks run (offline fixture mode).
+  runStartedAt?: string;
 }
 
 export function evaluateEvidenceAcceptance(
   definition: LiveCaseDefinition,
   input: EvaluationInput,
 ): CaseAcceptanceResult {
-  const { request, plan, metrics, diagnostics, sources } = input;
+  const { request, modelPlan, plan, metrics, diagnostics, sources, runStartedAt } = input;
+  const evaluatedAtMs = Date.now();
   const checks: AcceptanceCheck[] = [];
   const record = (id: string, passed: boolean, detail: string) =>
     checks.push({ id, passed, detail });
@@ -234,18 +422,25 @@ export function evaluateEvidenceAcceptance(
       : 'The request does not carry the exact official starting URL set for this case.',
   );
 
-  const officialRetrieved = sources.filter(
-    (entry) =>
-      entry.source.authority === 'official' &&
-      isOfficialHost(hostOf(entry.source.url ?? ''), definition.officialHostSuffixes) &&
-      entry.source.excerpt.trim().length > 0,
-  );
+  // Provenance contract: official host + authority + non-empty excerpt +
+  // parseable timestamp + pipeline metadata + hash integrity (+ freshness in
+  // a live run). A bare URL, frozen fixture stamp or model citation fails.
+  const provenancePerSource = sources.map((entry) => ({
+    entry,
+    issues: provenanceIssues(entry, definition, runStartedAt, evaluatedAtMs),
+  }));
+  const qualified = provenancePerSource.filter((item) => item.issues.length === 0);
+  const rejected = provenancePerSource.filter((item) => item.issues.length > 0);
   record(
     'official-source-genuinely-retrieved',
-    officialRetrieved.length > 0,
-    officialRetrieved.length
-      ? `${officialRetrieved.length} official host source(s) retrieved with non-empty excerpts and timestamps.`
-      : 'No official-host source with a non-empty excerpt was retrieved; a URL alone is not evidence.',
+    qualified.length > 0,
+    qualified.length
+      ? `${qualified.length} source(s) satisfy the full live-retrieval provenance contract (official host, authority, excerpt, parseable timestamp, metadata, hash).`
+      : `No source satisfies the live-retrieval provenance contract. Rejected: ${
+          rejected
+            .map((item) => `${item.entry.source.id} (${item.issues.join('; ')})`)
+            .join(' | ') || 'none retrieved'
+        }`,
   );
 
   const receipt = plan.runtime;
@@ -371,8 +566,32 @@ export function evaluateEvidenceAcceptance(
       : 'An unresolved question is missing its id, question text or reason.',
   );
 
-  const requestedUrlOutcomes = deriveRequestedUrlOutcomes(request, sources, plan.warnings);
-  const trapCoverage = evaluateTrapCoverage(definition, diagnostics, sources);
+  // False-positive trap guard: a retrieved trap passage that downgrades a
+  // protected unrelated domestic step fails acceptance; same-subject/same-route
+  // prohibitions on applicable steps remain legitimate contradictions.
+  const { coverage, violations, legitimate } = evaluateTrapCoverage(
+    definition,
+    diagnostics,
+    sources,
+    modelPlan,
+    plan,
+  );
+  record(
+    'no-false-positive-trap-downgrades',
+    violations.length === 0,
+    violations.length
+      ? `${violations.length} false-positive or unclassifiable trap downgrade(s): ${violations.join(' | ')}`
+      : `Every trap-material contradiction targets an applicable step (${legitimate} legitimate decision(s)); no protected domestic step was wrongly downgraded.`,
+  );
+
+  const requestedUrlOutcomes = deriveRequestedUrlOutcomes(
+    request,
+    sources,
+    plan.warnings,
+    definition,
+    runStartedAt,
+    evaluatedAtMs,
+  );
   const reasonCodeCounts = diagnostics.reduce<Record<string, number>>((acc, entry) => {
     acc[entry.reasonCode] = (acc[entry.reasonCode] ?? 0) + 1;
     return acc;
@@ -384,12 +603,14 @@ export function evaluateEvidenceAcceptance(
   const failed = checks.filter((check) => !check.passed);
   return {
     caseId: definition.caseId,
-    evaluatedAt: new Date().toISOString(),
+    evaluatedAt: new Date(evaluatedAtMs).toISOString(),
     passed: failed.length === 0,
     checks,
     reasons: failed.map((check) => `${check.id}: ${check.detail}`),
     requestedUrlOutcomes,
-    trapCoverage,
+    trapCoverage: coverage,
+    falsePositiveViolations: violations,
+    legitimateContradictions: legitimate,
     contradictionCount,
     reasonCodeCounts,
   };

@@ -2,12 +2,14 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
+import type { ContradictionDiagnostic } from '../server/lib/claim-checks';
 import { validateEvidencePlan } from '../server/lib/evidence';
 import type { RetrievedSource } from '../server/lib/retrieval';
 import {
   KNOWN_REASON_CODES,
   evaluateEvidenceAcceptance,
   type LiveCaseDefinition,
+  type TrapObservation,
 } from '../scripts/live-acceptance';
 import { DEFAULT_CASE_ID, LIVE_CASES, selectCase } from '../scripts/live-cases';
 import {
@@ -35,11 +37,26 @@ function buildDefinition(): LiveCaseDefinition {
   return selectCase(NIGERIA_CASE_ID);
 }
 
+function validatedFixture() {
+  const sources = makeNigeriaOfficialSources();
+  const modelPlan = makeNigeriaOfficialModelPlan();
+  const output = validateEvidencePlan({
+    modelPlan,
+    sources,
+    input: makeNigeriaOfficialInput(),
+    runtime: nigeriaOfficialReceipt,
+    id: 'live-acceptance-offline-fixture',
+    includeDiagnostics: true,
+  });
+  return { sources, modelPlan, ...output };
+}
+
 function evaluateOffline(requestOverride?: Partial<TaskInput>, sourceOverride?: RetrievedSource[]) {
   const definition = buildDefinition();
   const sources = sourceOverride ?? makeNigeriaOfficialSources();
+  const modelPlan = makeNigeriaOfficialModelPlan();
   const { plan, metrics, diagnostics } = validateEvidencePlan({
-    modelPlan: makeNigeriaOfficialModelPlan(),
+    modelPlan,
     sources,
     input: makeNigeriaOfficialInput(),
     runtime: nigeriaOfficialReceipt,
@@ -49,11 +66,38 @@ function evaluateOffline(requestOverride?: Partial<TaskInput>, sourceOverride?: 
   const request = { ...buildNigeriaTaskInput(), ...requestOverride };
   return evaluateEvidenceAcceptance(definition, {
     request,
+    modelPlan,
     plan,
     metrics,
     diagnostics,
     sources,
   });
+}
+
+// A fully populated synthetic contradiction record for evaluator tests. It
+// is clearly test-constructed and is never represented as a live result.
+function contradictionDiagnostic(
+  overrides: Partial<ContradictionDiagnostic>,
+): ContradictionDiagnostic {
+  return {
+    instructionId: 'portal-nin',
+    sourceId: 'S4',
+    sentence: 'Synthetic trap sentence for an offline evaluator test.',
+    clause: null,
+    requestedRoute: { online: true, paper: false, inPerson: true, consular: false, abroad: false },
+    sentenceRoutes: ['paper'],
+    locationScope: 'domestic',
+    negationCues: ['not'],
+    negatedTerms: [],
+    alignedTerms: ['portal'],
+    subjectActionAligned: true,
+    routeAligned: true,
+    circumstanceAligned: true,
+    decision: 'contradiction',
+    reasonCode: 'negated-requirement',
+    findingKind: 'negated-requirement',
+    ...overrides,
+  };
 }
 
 describe('Nigeria live-case definition', () => {
@@ -70,13 +114,17 @@ describe('Nigeria live-case definition', () => {
     expect(context).not.toMatch(/consular|diaspora/i);
   });
 
-  it('registers the Nigeria case as the unique default with seven trap classes', () => {
+  it('registers the Nigeria case as the unique default with seven trap relationships', () => {
     expect(DEFAULT_CASE_ID).toBe(NIGERIA_CASE_ID);
     expect(LIVE_CASES).toHaveLength(1);
     expect(selectCase(DEFAULT_CASE_ID).caseId).toBe(NIGERIA_CASE_ID);
     expect(() => selectCase('does-not-exist')).toThrow(/Unknown live case/);
     const ids = NIGERIA_TRAP_CLASSES.map((entry) => entry.id);
     expect(new Set(ids).size).toBe(7);
+    for (const trap of NIGERIA_TRAP_CLASSES) {
+      expect(trap.protectedStepPattern).toBeInstanceOf(RegExp);
+      expect(trap.applicableStepPattern).toBeInstanceOf(RegExp);
+    }
   });
 });
 
@@ -92,10 +140,11 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     expect(ids).toContain('in-person-biometric-obligation-supported');
     expect(ids).toContain('no-supported-online-only-completion');
     expect(ids).toContain('no-supported-included-bank-charges-claim');
+    expect(ids).toContain('no-false-positive-trap-downgrades');
     expect(result.checks.every((check) => check.passed)).toBe(true);
   });
 
-  it('records a retrieved outcome for every requested official URL', () => {
+  it('records a retrieved, provenance-qualified outcome for every requested official URL', () => {
     const result = evaluateOffline();
     expect(result.requestedUrlOutcomes).toHaveLength(4);
     expect(result.requestedUrlOutcomes.map((entry) => entry.outcome)).toEqual([
@@ -105,10 +154,13 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
       'retrieved',
     ]);
     for (const entry of result.requestedUrlOutcomes) {
-      expect(entry.retrievedAt).toBeTruthy();
+      expect(entry.liveRetrievalQualified).toBe(true);
+      expect(entry.provenanceIssues).toEqual([]);
+      expect(entry.retrievedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(entry.contentHash).toMatch(/^[a-f0-9]{64}$/);
       expect(entry.excerptLength).toBeGreaterThan(0);
       expect(entry.authority).toBe('official');
+      expect(['direct', 'tavily']).toContain(entry.retrievalRoute);
     }
   });
 
@@ -122,17 +174,24 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     expect(feeTrap.materialRetrieved).toBe(true);
     expect(feeTrap.evaluated).toBe(true);
     expect(feeTrap.exercised).toBe(true);
-    // Bank-charge and biometric wording exists in the retrieved official
-    // sources, but the matching passages are affirmative so the engine needed
-    // no contradiction decision: material present, not a false gap.
+    // Bank-charge wording is exercised through the sentence-less currency
+    // record, which may only attach to the bank-charges class.
+    const bankTrap = byId.get('bank-charges-excluded-vs-included')!;
+    expect(bankTrap.materialRetrieved).toBe(true);
+    expect(bankTrap.exercised).toBe(true);
+    expect(bankTrap.observations[0].classification).toBe('legitimate');
+    // Other passages exist in the retrieved sources, but the matching
+    // wording is affirmative or out of scope, so no contradiction decision
+    // was required: material present, not a false gap, and — crucially —
+    // the sentence-less currency record never fans out into these classes.
     for (const id of [
-      'bank-charges-excluded-vs-included',
       'online-submission-vs-in-person-biometrics',
       'printed-photo-vs-unrelated-steps',
       'foreign-consulate-cutoff-vs-domestic-submission',
     ]) {
       expect(byId.get(id)!.materialRetrieved).toBe(true);
       expect(byId.get(id)!.exercised).toBe(false);
+      expect(byId.get(id)!.observations).toEqual([]);
     }
     // No consular internet-facility or age-rule passage was retrieved at all.
     for (const id of ['consular-internet-vs-domestic-online', 'age-specific-vs-adult-applicant']) {
@@ -143,6 +202,108 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     for (const code of Object.keys(result.reasonCodeCounts)) {
       expect(KNOWN_REASON_CODES.has(code as never)).toBe(true);
     }
+  });
+
+  it('classifies the genuine fee and bank-charge downgrades as legitimate contradictions, not false positives', () => {
+    const result = evaluateOffline();
+    expect(result.falsePositiveViolations).toEqual([]);
+    expect(result.legitimateContradictions).toBeGreaterThanOrEqual(2);
+    const observations = result.trapCoverage.flatMap((entry) => entry.observations);
+    const classifications = new Map(
+      observations.map((entry: TrapObservation) => [entry.reasonCode, entry.classification]),
+    );
+    expect(classifications.get('fee-context-mismatch')).toBe('legitimate');
+    expect(classifications.get('ungrounded-currency')).toBe('legitimate');
+    // Every observation resolves to the actual final step id, title and status.
+    for (const observation of observations) {
+      expect(observation.finalStepId).toMatch(/^step-\d+$/);
+      expect(observation.stepTitle).toBeTruthy();
+      expect(observation.finalStepStatus).toBe('unverifiable');
+    }
+  });
+
+  it('fails acceptance when a retrieved trap passage downgrades a protected unrelated domestic step', () => {
+    const definition = buildDefinition();
+    const fixture = validatedFixture();
+    const plan: Plan = structuredClone(fixture.plan);
+    // Simulate the original production class: a printed-photograph passage
+    // downgrades the unrelated portal/NIN step (model id portal-nin → step-1).
+    const portalStep = plan.steps.find((step) => step.id === 'step-1')!;
+    portalStep.status = 'unverifiable';
+    const diagnostic = contradictionDiagnostic({
+      instructionId: 'portal-nin',
+      sourceId: 'S4',
+      sentence: 'You need two identical printed photos if you are applying using a paper form.',
+      reasonCode: 'negated-requirement',
+    });
+    const result = evaluateEvidenceAcceptance(definition, {
+      request: buildNigeriaTaskInput(),
+      modelPlan: fixture.modelPlan,
+      plan,
+      metrics: fixture.metrics,
+      diagnostics: [...fixture.diagnostics, diagnostic],
+      sources: fixture.sources,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.reasons.join(' ')).toContain('no-false-positive-trap-downgrades');
+    expect(result.falsePositiveViolations.join(' ')).toContain('printed-photo-vs-unrelated-steps');
+    const photoTrap = result.trapCoverage.find(
+      (entry) => entry.trapId === 'printed-photo-vs-unrelated-steps',
+    )!;
+    const observation = photoTrap.observations[0];
+    expect(observation.classification).toBe('false-positive');
+    expect(observation.stepTitle).toBe(portalStep.title);
+    expect(observation.finalStepStatus).toBe('unverifiable');
+    expect(observation.sourceId).toBe('S4');
+  });
+
+  it('keeps a same-subject, same-route photo prohibition as a legitimate contradiction', () => {
+    const definition = buildDefinition();
+    const fixture = validatedFixture();
+    // Add a model step and its renumbered final counterpart that genuinely
+    // instructs posting printed photos — the prohibition applies directly.
+    const modelPlan = structuredClone(fixture.modelPlan);
+    modelPlan.steps.push({
+      id: 'post-photos',
+      title: 'Post printed photos with your online application',
+      instruction: 'Post printed photos with your online application.',
+      completionCriteria: 'Printed photos are mailed.',
+      claimedStatus: 'supported',
+      evidence: [],
+      dueDate: null,
+      dependsOn: [],
+    });
+    const plan: Plan = structuredClone(fixture.plan);
+    plan.steps.push({
+      id: `step-${plan.steps.length + 1}`,
+      title: 'Post printed photos with your online application',
+      instruction: 'Post printed photos with your online application.',
+      completionCriteria: 'Printed photos are mailed.',
+      status: 'unverifiable',
+      evidence: [],
+      dueDate: null,
+      dependsOn: [],
+      userEdited: false,
+      notes: [],
+    });
+    const diagnostic = contradictionDiagnostic({
+      instructionId: 'post-photos',
+      sourceId: 'S4',
+      sentence: 'You need two identical printed photos if you are applying using a paper form.',
+    });
+    const result = evaluateEvidenceAcceptance(definition, {
+      request: buildNigeriaTaskInput(),
+      modelPlan,
+      plan,
+      metrics: fixture.metrics,
+      diagnostics: [...fixture.diagnostics, diagnostic],
+      sources: fixture.sources,
+    });
+    const photoTrap = result.trapCoverage.find(
+      (entry) => entry.trapId === 'printed-photo-vs-unrelated-steps',
+    )!;
+    expect(photoTrap.observations[0].classification).toBe('legitimate');
+    expect(result.falsePositiveViolations).toEqual([]);
   });
 
   it('fails when the request targets the wrong jurisdiction or injects a document', () => {
@@ -166,21 +327,85 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     expect(result.passed).toBe(false);
     const ids = result.checks.filter((check) => !check.passed).map((check) => check.id);
     expect(ids).toContain('official-source-genuinely-retrieved');
+    expect(
+      result.requestedUrlOutcomes.every((entry) => entry.liveRetrievalQualified === false),
+    ).toBe(true);
+  });
+
+  it('rejects sources with missing, malformed or stale timestamps and non-pipeline routes', () => {
+    const definition = buildDefinition();
+    const fixture = validatedFixture();
+    const runStartedAt = new Date().toISOString();
+    const singleSource = (
+      mutate: (source: RetrievedSource) => RetrievedSource,
+      stamp?: string | null,
+    ) => {
+      const source = mutate(structuredClone(fixture.sources[0]));
+      if (stamp !== undefined) source.source.retrievedAt = stamp as string;
+      return evaluateEvidenceAcceptance(definition, {
+        request: buildNigeriaTaskInput(),
+        modelPlan: fixture.modelPlan,
+        plan: fixture.plan,
+        metrics: fixture.metrics,
+        diagnostics: fixture.diagnostics,
+        sources: [source],
+        runStartedAt: stamp === undefined ? undefined : runStartedAt,
+      });
+    };
+
+    const missingStamp = singleSource((s) => s, null);
+    expect(missingStamp.passed).toBe(false);
+    expect(missingStamp.requestedUrlOutcomes[0].provenanceIssues.join(' ')).toMatch(/timestamp/);
+
+    const malformedStamp = singleSource((s) => s, '2026-10-24 00:00:00');
+    expect(malformedStamp.requestedUrlOutcomes[0].liveRetrievalQualified).toBe(false);
+    expect(malformedStamp.requestedUrlOutcomes[0].provenanceIssues.join(' ')).toMatch(/timestamp/);
+
+    const uploaded = singleSource((s) => {
+      s.source.retrieval = 'upload';
+      return s;
+    }, new Date().toISOString());
+    expect(uploaded.requestedUrlOutcomes[0].provenanceIssues.join(' ')).toMatch(
+      /not a live direct\/tavily fetch/,
+    );
+
+    const badHash = singleSource((s) => {
+      s.text = `${s.text} appended after hashing`;
+      return s;
+    }, new Date().toISOString());
+    expect(badHash.requestedUrlOutcomes[0].provenanceIssues.join(' ')).toMatch(/content hash/);
+
+    // A frozen fixture stamp cannot evidence a live run when the run window
+    // is supplied...
+    const frozen = singleSource((s) => s, fixture.sources[0].source.retrievedAt);
+    expect(frozen.requestedUrlOutcomes[0].liveRetrievalQualified).toBe(false);
+    expect(frozen.requestedUrlOutcomes[0].provenanceIssues.join(' ')).toMatch(
+      /frozen or stale stamp/,
+    );
+    // ...while a genuinely fresh timestamp inside the run window qualifies.
+    const freshSource = structuredClone(fixture.sources[0]);
+    freshSource.source.retrievedAt = new Date().toISOString();
+    const fresh = evaluateEvidenceAcceptance(definition, {
+      request: buildNigeriaTaskInput(),
+      modelPlan: fixture.modelPlan,
+      plan: fixture.plan,
+      metrics: fixture.metrics,
+      diagnostics: fixture.diagnostics,
+      sources: [freshSource],
+      runStartedAt,
+    });
+    expect(fresh.requestedUrlOutcomes[0].liveRetrievalQualified).toBe(true);
+    expect(fresh.requestedUrlOutcomes[0].provenanceIssues).toEqual([]);
+    expect(
+      fresh.checks.find((check) => check.id === 'official-source-genuinely-retrieved')!.passed,
+    ).toBe(true);
   });
 
   it('fails on a supported fully-online/no-visit step or included-bank-charges claim', () => {
     const definition = buildDefinition();
-    const sources = makeNigeriaOfficialSources();
-    const { plan, metrics, diagnostics } = validateEvidencePlan({
-      modelPlan: makeNigeriaOfficialModelPlan(),
-      sources,
-      input: makeNigeriaOfficialInput(),
-      runtime: nigeriaOfficialReceipt,
-      id: 'live-acceptance-mutation-fixture',
-      includeDiagnostics: true,
-    });
-    const officialId = sources[0].source.id;
-    const mutated: Plan = structuredClone(plan);
+    const fixture = validatedFixture();
+    const officialId = fixture.sources[0].source.id;
+    const mutated: Plan = structuredClone(fixture.plan);
     mutated.steps.push({
       id: 'step-trap',
       title: 'Complete the entire renewal online',
@@ -188,7 +413,7 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
         'Complete the entire renewal online without visiting an immigration office or attending biometric capture.',
       completionCriteria: 'No office visit occurs.',
       status: 'supported',
-      evidence: [{ sourceId: officialId, quote: plan.steps[0].evidence[0].quote }],
+      evidence: [{ sourceId: officialId, quote: fixture.plan.steps[0].evidence[0].quote }],
       dueDate: null,
       dependsOn: [],
       userEdited: false,
@@ -196,15 +421,16 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     });
     const noVisit = evaluateEvidenceAcceptance(definition, {
       request: buildNigeriaTaskInput(),
+      modelPlan: fixture.modelPlan,
       plan: mutated,
-      metrics,
-      diagnostics,
-      sources,
+      metrics: fixture.metrics,
+      diagnostics: fixture.diagnostics,
+      sources: fixture.sources,
     });
     expect(noVisit.passed).toBe(false);
     expect(noVisit.reasons.join(' ')).toContain('no-supported-online-only-completion');
 
-    const chargesPlan: Plan = structuredClone(plan);
+    const chargesPlan: Plan = structuredClone(fixture.plan);
     chargesPlan.steps.push({
       id: 'step-charges',
       title: 'Pay a fee including bank charges',
@@ -212,7 +438,7 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
         'Pay NGN 100,000 including bank charges for the domestic 32-page 5-year renewal.',
       completionCriteria: 'Charges are bundled into the fee.',
       status: 'supported',
-      evidence: [{ sourceId: officialId, quote: plan.steps[0].evidence[0].quote }],
+      evidence: [{ sourceId: officialId, quote: fixture.plan.steps[0].evidence[0].quote }],
       dueDate: null,
       dependsOn: [],
       userEdited: false,
@@ -220,10 +446,11 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     });
     const charges = evaluateEvidenceAcceptance(definition, {
       request: buildNigeriaTaskInput(),
+      modelPlan: fixture.modelPlan,
       plan: chargesPlan,
-      metrics,
-      diagnostics,
-      sources,
+      metrics: fixture.metrics,
+      diagnostics: fixture.diagnostics,
+      sources: fixture.sources,
     });
     expect(charges.passed).toBe(false);
     expect(charges.reasons.join(' ')).toContain('included-bank-charges');
@@ -231,41 +458,35 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
 
   it('fails when the live receipt is incomplete or diagnostics carry an unknown reason code', () => {
     const definition = buildDefinition();
-    const sources = makeNigeriaOfficialSources();
-    const base = validateEvidencePlan({
-      modelPlan: makeNigeriaOfficialModelPlan(),
-      sources,
-      input: makeNigeriaOfficialInput(),
-      runtime: nigeriaOfficialReceipt,
-      id: 'live-acceptance-receipt-fixture',
-      includeDiagnostics: true,
-    });
-    const sampleMode: Plan = structuredClone(base.plan);
+    const fixture = validatedFixture();
+    const sampleMode: Plan = structuredClone(fixture.plan);
     sampleMode.runtime = { ...sampleMode.runtime, mode: 'sample', responseId: null };
     const receipt = evaluateEvidenceAcceptance(definition, {
       request: buildNigeriaTaskInput(),
+      modelPlan: fixture.modelPlan,
       plan: sampleMode,
-      metrics: base.metrics,
-      diagnostics: base.diagnostics,
-      sources,
+      metrics: fixture.metrics,
+      diagnostics: fixture.diagnostics,
+      sources: fixture.sources,
     });
     expect(receipt.passed).toBe(false);
     expect(receipt.reasons.join(' ')).toContain('live-provider-receipt');
 
     const malformed = evaluateEvidenceAcceptance(definition, {
       request: buildNigeriaTaskInput(),
-      plan: base.plan,
-      metrics: base.metrics,
+      modelPlan: fixture.modelPlan,
+      plan: fixture.plan,
+      metrics: fixture.metrics,
       diagnostics: [
-        ...base.diagnostics,
+        ...fixture.diagnostics,
         {
-          ...base.diagnostics[0],
+          ...fixture.diagnostics[0],
           // Deliberately outside the documented reason-code vocabulary.
           reasonCode: 'made-up-code' as never,
           decision: 'contradiction',
         },
       ],
-      sources,
+      sources: fixture.sources,
     });
     expect(malformed.passed).toBe(false);
     expect(malformed.reasons.join(' ')).toContain('diagnostics-threaded');
@@ -281,6 +502,7 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
     )!;
     expect(sla.outcome).toBe('not-retrieved');
     expect(sla.retrievedAt).toBeNull();
+    expect(sla.liveRetrievalQualified).toBe(false);
     // Three official sources remain, so the case can still pass while the
     // missing PDF is transparently recorded rather than fabricated.
     expect(result.passed).toBe(true);

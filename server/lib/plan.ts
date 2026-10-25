@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { IntakeRequest, IntakeResponse, PlanRequest } from '../../src/shared/schemas';
-import { validateEvidencePlan, ModelPlanSchema } from './evidence';
+import { validateEvidencePlan, ModelPlanSchema, type ModelPlan } from './evidence';
 import { mergeClarifications, requiredClarifications } from './intake';
 import type { NebiusClient } from './nebius';
 import { retrieveSources, type RetrievedSource } from './retrieval';
@@ -207,7 +207,12 @@ export async function runPlan(
   tavily: TavilyClient,
   input: PlanRequest,
   validation: { includeDiagnostics?: boolean } = {},
-): Promise<ReturnType<typeof validateEvidencePlan> & { sources: RetrievedSource[] }> {
+): Promise<
+  ReturnType<typeof validateEvidencePlan> & {
+    sources: RetrievedSource[];
+    modelPlan: ModelPlan;
+  }
+> {
   client.ensureConfigured();
   const retrieval = await retrieveSources({
     directUrls: input.sourceUrls,
@@ -265,5 +270,8 @@ export async function runPlan(
     // Returned for auditable live-verification artifacts; the HTTP route
     // continues to consume only plan and metrics.
     sources: retrieval.sources,
+    // The unvalidated model output, so the live acceptance evaluator can
+    // resolve model step ids to the final renumbered plan steps.
+    modelPlan: output,
   };
 }

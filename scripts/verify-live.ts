@@ -63,6 +63,10 @@ async function runLiveCase(definition: LiveCaseDefinition) {
   const client = new NebiusClient(config);
   const tavily = new TavilyClient(config);
 
+  // Start of the live run window: retrieval timestamps must fall inside it
+  // (plus clock skew), which prevents frozen fixture stamps from qualifying
+  // as evidence of a source fetched during this run.
+  const runStartedAt = new Date().toISOString();
   const intake = await runIntake(client, caseRequest);
   // Do not invent personal facts to silence clarification questions. The
   // model must retain any unresolved uncertainty in the resulting plan.
@@ -89,10 +93,12 @@ async function runLiveCase(definition: LiveCaseDefinition) {
 
   const acceptance: CaseAcceptanceResult = evaluateEvidenceAcceptance(definition, {
     request: caseRequest,
+    modelPlan: result.modelPlan,
     plan: result.plan,
     metrics: result.metrics,
     diagnostics: result.diagnostics,
     sources: result.sources,
+    runStartedAt,
   });
 
   const stepDecisions = result.plan.steps.map((step) => ({
@@ -115,6 +121,7 @@ async function runLiveCase(definition: LiveCaseDefinition) {
       expectedJurisdiction: definition.expectedJurisdiction,
       request: caseRequest,
       expectedSourceUrls: [...definition.expectedSourceUrls],
+      runStartedAt,
     },
     note: 'Genuine live API calls for this run only. Not a production availability or future-performance guarantee.',
     provider: {
@@ -160,6 +167,8 @@ async function runLiveCase(definition: LiveCaseDefinition) {
       checks: acceptance.checks,
       reasons: acceptance.reasons,
       trapCoverage: acceptance.trapCoverage,
+      falsePositiveViolations: acceptance.falsePositiveViolations,
+      legitimateContradictions: acceptance.legitimateContradictions,
       contradictionCount: acceptance.contradictionCount,
     },
     plan: result.plan,
@@ -182,6 +191,9 @@ async function runLiveCase(definition: LiveCaseDefinition) {
   ).length;
   console.log(
     `Official URLs retrieved: ${retrieved}/${acceptance.requestedUrlOutcomes.length}; diagnostics: ${result.diagnostics.length} records`,
+  );
+  console.log(
+    `Trap guard: ${acceptance.falsePositiveViolations.length} false-positive violation(s); ${acceptance.legitimateContradictions} legitimate trap contradiction(s) retained`,
   );
   if (acceptance.passed) {
     console.log('CASE ACCEPTANCE: PASS — every Nigerian evidence-quality check succeeded.');
