@@ -1,88 +1,249 @@
+import { execSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { getConfig } from '../server/config';
 import { NebiusClient } from '../server/lib/nebius';
 import { runIntake, runPlan } from '../server/lib/plan';
+import type { RetrievedSource } from '../server/lib/retrieval';
 import { TavilyClient } from '../server/lib/tavily';
+import {
+  evaluateEvidenceAcceptance,
+  type CaseAcceptanceResult,
+  type LiveCaseDefinition,
+} from './live-acceptance';
+import { DEFAULT_CASE_ID, LIVE_CASES, selectCase } from './live-cases';
 import type { TaskInput } from '../src/shared/schemas';
 
 const config = getConfig();
 
-if (!config.nebiusApiKey) {
-  console.error(
-    'BLOCKED: NEBIUS_API_KEY is not set. No live request was made and no compliance claim can be established.',
-  );
-  console.error(
-    'Add a server-side credential to .env, then rerun npm run verify:live. The labelled sample is not a substitute.',
-  );
-  process.exitCode = 2;
-} else {
-  const documentText = `Renew or replace your adult passport
+function parseCaseId(argv: string[]): string {
+  const flag = argv.find((entry) => entry.startsWith('--case='));
+  if (!flag) return DEFAULT_CASE_ID;
+  return flag.slice('--case='.length).trim() || DEFAULT_CASE_ID;
+}
 
-It costs £102 to renew or replace your passport if you apply online or £115.50 if you fill in a paper form.
-
-You must be aged 16 or over (or turning 16 in the next 3 weeks) to get an adult passport.
-
-Check how long it will take to get a passport before you apply.
-
-Do not book travel until you have a valid passport - your new passport will not have the same number as your old one.
-
-You can track your passport application using your application reference number.`;
-
-  const input: TaskInput = {
-    task: 'Create an action plan to renew my adult UK passport online.',
-    jurisdiction: 'United Kingdom',
-    category: 'Travel & identity',
-    details:
-      'The applicant is 32, lives in the UK, is renewing a standard adult passport, prefers the online route, and is not asking about an urgent service.',
-    sourceUrls: [],
-    document: { name: 'govuk-renewal-excerpt-2026-10-23.txt', text: documentText },
+// Code revision for the artifact. Git metadata is best-effort: a missing git
+// binary or detached checkout must never make a real live run fail to record.
+function readCodeRevision() {
+  const run = (command: string) => {
+    try {
+      return execSync(command, { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+    } catch {
+      return null;
+    }
   };
+  return {
+    commitSha: run('git rev-parse HEAD'),
+    branch: run('git rev-parse --abbrev-ref HEAD'),
+  };
+}
 
-  try {
-    const client = new NebiusClient(config);
-    const tavily = new TavilyClient(config);
-    const intake = await runIntake(client, input);
-    // Do not invent personal facts to silence clarification questions. The model
-    // must retain any unresolved uncertainty in the resulting plan.
-    const answers = intake.questions.map((entry) => ({
-      question: entry.question,
-      answer:
-        'No additional personal fact is supplied. Keep any resulting uncertainty explicit and do not guess.',
-    }));
-    const result = await runPlan(client, tavily, {
-      ...input,
+// Sanitized retrieved-source packet for the audit artifact: metadata plus
+// the exact excerpt the pipeline stored, never headers, keys or envelopes.
+function sanitizeRetrievedSources(sources: RetrievedSource[]) {
+  return sources.map((entry) => ({
+    id: entry.source.id,
+    url: entry.source.url,
+    title: entry.source.title,
+    publisher: entry.source.publisher,
+    authority: entry.source.authority,
+    retrievalRoute: entry.source.retrieval,
+    retrievedAt: entry.source.retrievedAt,
+    publishedAt: entry.source.publishedAt,
+    stale: entry.source.stale,
+    contentHash: entry.source.contentHash,
+    fullTextLength: entry.text.length,
+    excerpt: entry.source.excerpt,
+  }));
+}
+
+async function runLiveCase(definition: LiveCaseDefinition) {
+  const caseRequest: TaskInput = definition.buildRequest();
+  const client = new NebiusClient(config);
+  const tavily = new TavilyClient(config);
+
+  // Start of the live run window: retrieval timestamps must fall inside it
+  // (plus clock skew), which prevents frozen fixture stamps from qualifying
+  // as evidence of a source fetched during this run.
+  const runStartedAt = new Date().toISOString();
+  const intake = await runIntake(client, caseRequest);
+  // Do not invent personal facts to silence clarification questions. The
+  // model must retain any unresolved uncertainty in the resulting plan.
+  const answers = intake.questions.map((entry) => ({
+    question: entry.question,
+    answer:
+      'No additional personal fact is supplied. Keep any resulting uncertainty explicit and do not guess.',
+  }));
+
+  const result = await runPlan(
+    client,
+    tavily,
+    {
+      ...caseRequest,
       goal: intake.goal,
       searchQueries: intake.searchQueries,
       answers,
-    });
-    if (result.plan.runtime.mode !== 'live' || result.plan.runtime.provider !== 'nebius') {
-      throw new Error('The successful result did not contain a live Nebius receipt.');
-    }
-    const artifact = {
-      verifiedAt: new Date().toISOString(),
-      note: 'Genuine live API calls for this run only. Not a production availability or future-performance guarantee.',
-      intakeRuntime: intake.runtime,
-      planRuntime: result.plan.runtime,
-      metrics: result.metrics,
-      intakeQuestions: intake.questions,
-      plan: result.plan,
-    };
-    await mkdir(new URL('../artifacts/', import.meta.url), { recursive: true });
-    await writeFile(
-      new URL('../artifacts/live-verification.json', import.meta.url),
-      JSON.stringify(artifact, null, 2),
+    },
+    { includeDiagnostics: true },
+  );
+  if (result.plan.runtime.mode !== 'live' || result.plan.runtime.provider !== 'nebius') {
+    throw new Error('The successful result did not contain a live Nebius receipt.');
+  }
+
+  const acceptance: CaseAcceptanceResult = evaluateEvidenceAcceptance(definition, {
+    request: caseRequest,
+    modelPlan: result.modelPlan,
+    plan: result.plan,
+    metrics: result.metrics,
+    diagnostics: result.diagnostics,
+    sources: result.sources,
+    runStartedAt,
+  });
+
+  const stepDecisions = result.plan.steps.map((step) => ({
+    id: step.id,
+    title: step.title,
+    finalStatus: step.status,
+    citationCount: step.evidence.length,
+    notes: step.notes,
+  }));
+
+  const artifact = {
+    // Inference receipt: true ONLY because a real keyed Nebius call completed.
+    // It does not imply the evidence-quality acceptance case passed.
+    liveInferenceVerified: true,
+    verifiedAt: new Date().toISOString(),
+    mode: result.plan.runtime.mode,
+    codeRevision: readCodeRevision(),
+    case: {
+      id: definition.caseId,
+      expectedJurisdiction: definition.expectedJurisdiction,
+      request: caseRequest,
+      expectedSourceUrls: [...definition.expectedSourceUrls],
+      runStartedAt,
+    },
+    note: 'Genuine live API calls for this run only. Not a production availability or future-performance guarantee.',
+    provider: {
+      id: result.plan.runtime.provider,
+      model: result.plan.runtime.model,
+      responseId: result.plan.runtime.responseId ?? null,
+      latencyMs: result.plan.runtime.latencyMs,
+      usage: result.plan.runtime.usage,
+    },
+    intakeRuntime: intake.runtime,
+    planRuntime: result.plan.runtime,
+    retrieval: {
+      requestedUrlOutcomes: acceptance.requestedUrlOutcomes,
+      retrievedSources: sanitizeRetrievedSources(result.sources),
+      warnings: result.plan.warnings,
+      tavilyCalls: result.plan.runtime.retrieval.tavilyCalls,
+      directFetches: result.plan.runtime.retrieval.directFetches,
+      tavilyRequestIds: result.plan.runtime.retrieval.tavilyRequestIds,
+    },
+    stepCounts: {
+      total: result.plan.steps.length,
+      supported: result.plan.steps.filter((step) => step.status === 'supported').length,
+      unverifiable: result.plan.steps.filter((step) => step.status === 'unverifiable').length,
+    },
+    beforeAfter: {
+      modelClaimedSupported: result.metrics.modelSupportedClaims,
+      validatedSupported: result.metrics.validatedSupportedClaims,
+      downgraded: result.metrics.contradictedClaimCount,
+      invalidCitationsRemoved: result.metrics.invalidCitationCount,
+      stepDecisions,
+    },
+    contradictionDiagnostics: result.diagnostics,
+    reasonCodeCounts: acceptance.reasonCodeCounts,
+    unresolvedQuestions: result.plan.unresolvedQuestions,
+    metrics: result.metrics,
+    intakeQuestions: intake.questions,
+    // Separate, explicit evidence-quality verdict. A model response alone can
+    // never set this to true: see every check inside caseAcceptance.checks.
+    caseAcceptance: {
+      caseId: acceptance.caseId,
+      evaluatedAt: acceptance.evaluatedAt,
+      passed: acceptance.passed,
+      checks: acceptance.checks,
+      reasons: acceptance.reasons,
+      trapCoverage: acceptance.trapCoverage,
+      falsePositiveViolations: acceptance.falsePositiveViolations,
+      legitimateContradictions: acceptance.legitimateContradictions,
+      contradictionCount: acceptance.contradictionCount,
+    },
+    plan: result.plan,
+  };
+
+  await mkdir(new URL('../artifacts/', import.meta.url), { recursive: true });
+  await writeFile(
+    new URL('../artifacts/live-verification.json', import.meta.url),
+    JSON.stringify(artifact, null, 2),
+  );
+
+  console.log(`LIVE NEBIUS VERIFIED: ${result.plan.runtime.model}`);
+  console.log(`Case: ${definition.caseId}`);
+  console.log(`Plan response ID: ${result.plan.runtime.responseId ?? 'not supplied by provider'}`);
+  console.log(
+    `Validated steps: ${result.plan.steps.length}; supported: ${artifact.stepCounts.supported}; downgraded: ${artifact.beforeAfter.downgraded}`,
+  );
+  const retrieved = acceptance.requestedUrlOutcomes.filter(
+    (entry) => entry.outcome === 'retrieved',
+  ).length;
+  console.log(
+    `Official URLs retrieved: ${retrieved}/${acceptance.requestedUrlOutcomes.length}; diagnostics: ${result.diagnostics.length} records`,
+  );
+  console.log(
+    `Trap guard: ${acceptance.falsePositiveViolations.length} false-positive violation(s); ${acceptance.legitimateContradictions} legitimate trap contradiction(s) retained`,
+  );
+  if (acceptance.passed) {
+    console.log('CASE ACCEPTANCE: PASS — every Nigerian evidence-quality check succeeded.');
+  } else {
+    console.log('CASE ACCEPTANCE: FAIL — live inference succeeded but evidence checks did not:');
+    for (const reason of acceptance.reasons) console.log(`  - ${reason}`);
+  }
+  console.log(
+    'Receipt, retrieval ledger, excerpts and diagnostics written to ignored artifacts/live-verification.json. This does not verify a public deployment.',
+  );
+
+  return acceptance.passed;
+}
+
+async function main() {
+  let caseId: string;
+  let definition: LiveCaseDefinition;
+  try {
+    caseId = parseCaseId(process.argv.slice(2));
+    definition = selectCase(caseId);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Could not resolve the live case.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!config.nebiusApiKey) {
+    console.error(
+      'BLOCKED: no Nebius credential is configured. No live request was made and no compliance claim can be established.',
     );
-    console.log(`LIVE NEBIUS VERIFIED: ${result.plan.runtime.model}`);
-    console.log(
-      `Plan response ID: ${result.plan.runtime.responseId ?? 'not supplied by provider'}`,
+    console.error(
+      `Target case: ${caseId}. Available cases: ${LIVE_CASES.map((entry) => entry.caseId).join(', ')}`,
     );
-    console.log(
-      `Validated steps: ${result.plan.steps.length}; supported: ${result.plan.steps.filter((step) => step.status === 'supported').length}`,
+    console.error(
+      'Required environment variable: NEBIUS_API_KEY (or NEBIUS_TOKEN_FACTORY_API_KEY). ' +
+        'Optional: NEBIUS_BASE_URL, NEBIUS_MODEL, TAVILY_API_KEY.',
     );
-    console.log(`Tavily runtime calls: ${result.plan.runtime.retrieval.tavilyCalls}`);
-    console.log(
-      'Receipt and plan written to ignored artifacts/live-verification.json. This does not verify a public deployment.',
+    console.error(
+      'Add the credential(s) to .env, then rerun exactly: npm run verify:live ' +
+        '(or npm run verify:live -- --case=<case-id>). Fixtures and samples are not substitutes for a keyed run.',
     );
+    process.exitCode = 2;
+    return;
+  }
+
+  try {
+    const passed = await runLiveCase(definition);
+    // Distinct exit code so CI or an operator can tell "inference worked, the
+    // evidence-quality acceptance did not" apart from a hard runtime failure.
+    process.exitCode = passed ? 0 : 3;
   } catch (error) {
     const code =
       typeof error === 'object' && error && 'code' in error ? String(error.code) : 'UNKNOWN';
@@ -90,8 +251,10 @@ You can track your passport application using your application reference number.
       `LIVE VERIFICATION FAILED [${code}]: ${error instanceof Error ? error.message : 'Unknown provider error'}`,
     );
     console.error(
-      'No live verification artifact was written. Check model access, structured-output support, quota, and source discovery configuration.',
+      'No live verification artifact was written. Check model access, structured-output support, quota, source reachability and retrieval configuration.',
     );
     process.exitCode = 1;
   }
 }
+
+void main();

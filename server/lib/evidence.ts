@@ -14,6 +14,7 @@ import {
   findInstructionContradictions,
   jurisdictionCoverage,
   routeContextFromInput,
+  type ContradictionDiagnostic,
 } from './claim-checks';
 import type { RetrievedSource } from './retrieval';
 
@@ -116,6 +117,9 @@ interface ValidationOptions {
   initialWarnings?: string[];
   now?: () => Date;
   id?: string;
+  // Opt-in inspection sink for per-candidate contradiction decisions. The
+  // plan schema and default behavior are unchanged when this is omitted.
+  includeDiagnostics?: boolean;
 }
 
 export interface EvidenceMetrics {
@@ -134,6 +138,8 @@ export interface EvidenceMetrics {
 export function validateEvidencePlan(options: ValidationOptions) {
   const warnings = [...(options.initialWarnings ?? [])];
   const route = routeContextFromInput(options.input);
+  // Records are only populated when the caller opts into diagnostics.
+  const contradictionDiagnostics: ContradictionDiagnostic[] = [];
   const idMap = new Map(
     options.modelPlan.steps.map((step, index) => [step.id, `step-${index + 1}`]),
   );
@@ -176,6 +182,8 @@ export function validateEvidencePlan(options: ValidationOptions) {
         sources: options.sources,
         citedSourceIds: validEvidence.map((citation) => citation.sourceId),
         route,
+        instructionId: step.id,
+        diagnostics: options.includeDiagnostics ? contradictionDiagnostics : undefined,
       });
       if (contradictions.length) {
         contradictedClaimCount += 1;
@@ -344,5 +352,10 @@ export function validateEvidencePlan(options: ValidationOptions) {
     validatedConflicts: conflicts.length,
     rejectedConflicts,
   };
-  return { plan: parsed, metrics };
+  return {
+    plan: parsed,
+    metrics,
+    // Empty unless ValidationOptions.includeDiagnostics was requested.
+    diagnostics: options.includeDiagnostics ? contradictionDiagnostics : [],
+  };
 }

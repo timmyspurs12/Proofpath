@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { IntakeRequest, IntakeResponse, PlanRequest } from '../../src/shared/schemas';
-import { validateEvidencePlan, ModelPlanSchema, type EvidenceMetrics } from './evidence';
+import { validateEvidencePlan, ModelPlanSchema, type ModelPlan } from './evidence';
 import { mergeClarifications, requiredClarifications } from './intake';
 import type { NebiusClient } from './nebius';
 import { retrieveSources, type RetrievedSource } from './retrieval';
@@ -206,7 +206,13 @@ export async function runPlan(
   client: NebiusClient,
   tavily: TavilyClient,
   input: PlanRequest,
-): Promise<{ plan: ReturnType<typeof validateEvidencePlan>['plan']; metrics: EvidenceMetrics }> {
+  validation: { includeDiagnostics?: boolean } = {},
+): Promise<
+  ReturnType<typeof validateEvidencePlan> & {
+    sources: RetrievedSource[];
+    modelPlan: ModelPlan;
+  }
+> {
   client.ensureConfigured();
   const retrieval = await retrieveSources({
     directUrls: input.sourceUrls,
@@ -252,11 +258,20 @@ export async function runPlan(
     .filter((entry) => entry.reason.startsWith('Excluded by the six-source'))
     .slice(0, 4)
     .map((entry) => `${entry.host}: ${entry.reason}`);
-  return validateEvidencePlan({
-    modelPlan: output,
+  return {
+    ...validateEvidencePlan({
+      modelPlan: output,
+      sources: retrieval.sources,
+      input,
+      runtime: receipt,
+      initialWarnings: [...retrieval.warnings, ...ledgerWarnings],
+      includeDiagnostics: validation.includeDiagnostics ?? false,
+    }),
+    // Returned for auditable live-verification artifacts; the HTTP route
+    // continues to consume only plan and metrics.
     sources: retrieval.sources,
-    input,
-    runtime: receipt,
-    initialWarnings: [...retrieval.warnings, ...ledgerWarnings],
-  });
+    // The unvalidated model output, so the live acceptance evaluator can
+    // resolve model step ids to the final renumbered plan steps.
+    modelPlan: output,
+  };
 }
