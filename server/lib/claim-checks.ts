@@ -128,6 +128,109 @@ function qualifierConflicts(claimed: FeeQualifiers, published: FeeQualifiers): s
   return conflicts;
 }
 
+// Monetary head nouns. A question containing one of these is a fee question;
+// the same vocabulary gates clause alignment elsewhere in this module.
+const QUESTION_MONEY_TERMS = new Set([
+  'fee',
+  'fees',
+  'charge',
+  'charges',
+  'payment',
+  'cost',
+  'price',
+  'prices',
+  'refund',
+  'tariff',
+  'duty',
+]);
+
+// Location/channel words decide applicability through the route and location
+// gates, so they must not also act as distinctive subject terms when deciding
+// whether a source sentence answers a fee question.
+const QUESTION_SCOPE_TERMS = new Set([
+  'domestic',
+  'abroad',
+  'overseas',
+  'diaspora',
+  'online',
+  'digital',
+  'digitally',
+  'paper',
+  'postal',
+  'mail',
+  'counter',
+]);
+
+// Decides whether an unresolved fee question is already answered by a
+// retrieved source, using only generic monetary notation, fee qualifiers,
+// route scope and vocabulary overlap. It never constructs an answer or reads
+// model memory: a question is only resolved when an in-scope source sentence
+// publishes a matching amount. The check is deliberately fail-closed:
+// - non-monetary questions (timelines, availability, procedures) never qualify;
+// - bank-charge questions never qualify, because "exclusive of bank charges"
+//   wording states a pricing policy, not the provider's charge amount;
+// - every distinctive, non-generic term of the question must occur in the
+//   candidate sentence, so a question about a service variant the sources do
+//   not mention stays unresolved;
+// - opposite-location sentences are excluded for the requested route;
+// - official sources are preferred whenever any official candidate matches.
+export function currencyQuestionAnswered(
+  question: { question: string; reason: string },
+  sources: RetrievedSource[],
+  route: RouteContext,
+): boolean {
+  const text = `${question.question} ${question.reason}`;
+  if (!MONEY_CLAUSE_PATTERN.test(text)) return false;
+  if (BANK_CHARGES.test(text)) return false;
+  // A fee question scoped to the opposite application location cannot be
+  // answered by this route's evidence, mirroring the out-of-route question
+  // filter. Unspecified location stays eligible and is decided on scope.
+  const questionLocation = locationScopeOf(text);
+  if (questionLocation === 'abroad' && !route.abroad) return false;
+  if (questionLocation === 'domestic' && route.abroad) return false;
+
+  const questionCurrencies = new Set(extractCurrencyClaims(text).map((claim) => claim.currency));
+  const questionQualifiers = extractFeeQualifiers(text);
+  // Distinctive subject terms come from the question itself, never from its
+  // reason text: the reason is meta-commentary about why the model asked and
+  // routinely contains words ("plan", "selected", "needed") that no official
+  // passage would echo. Scope, currency and qualifier context still use both
+  // fields above.
+  const requiredTerms = instructionTerms(question.question).filter(
+    (term) =>
+      !GENERIC_PROCESS_TERMS.has(term) &&
+      !ROUTE_TERMS.has(term) &&
+      !QUESTION_SCOPE_TERMS.has(term) &&
+      !QUESTION_MONEY_TERMS.has(term),
+  );
+
+  const matches: Array<{ official: boolean }> = [];
+  for (const source of sources) {
+    for (const sentence of splitSentences(source.text)) {
+      const sentenceClaims = extractCurrencyClaims(sentence);
+      if (!sentenceClaims.length) continue;
+      const locationScope = locationScopeOf(sentence);
+      if (!route.abroad && locationScope === 'abroad') continue;
+      if (route.abroad && locationScope === 'domestic') continue;
+      if (
+        questionCurrencies.size &&
+        !sentenceClaims.some((claim) => questionCurrencies.has(claim.currency))
+      ) {
+        continue;
+      }
+      if (qualifierConflicts(questionQualifiers, extractFeeQualifiers(sentence)).length) continue;
+      if (!requiredTerms.every((term) => termAppears(term, instructionTerms(sentence)))) continue;
+      matches.push({ official: source.source.authority === 'official' });
+    }
+  }
+  if (!matches.length) return false;
+  // Mirror the step-level fee rule: when the retrieval set contains an
+  // official source, only an official match can answer the question; a
+  // secondary figure cannot override official guidance.
+  const officialSourcePresent = sources.some((source) => source.source.authority === 'official');
+  return officialSourcePresent ? matches.some((match) => match.official) : true;
+}
+
 export interface ClaimContradiction {
   kind: ClaimContradictionKind;
   detail: string;
