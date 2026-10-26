@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { validateEvidencePlan } from '../server/lib/evidence';
 import {
+  currencyQuestionAnswered,
   extractCurrencyClaims,
   findInstructionContradictions,
   instructionTerms,
@@ -413,5 +414,163 @@ describe('cross-jurisdiction universality', () => {
     ).toBe(true);
     expect(plan.warnings.some((warning) => warning.includes('jurisdiction'))).toBe(true);
     expect(plan.unresolvedQuestions).toHaveLength(1);
+  });
+});
+
+// Generic, jurisdiction-neutral coverage for evidence-answered fee questions.
+// Sources are fictional administrative pages; the helper must work for any
+// country and never synthesize an answer itself.
+describe('currencyQuestionAnswered', () => {
+  const domesticRoute = {
+    online: true,
+    paper: false,
+    inPerson: false,
+    consular: false,
+    abroad: false,
+  };
+  const abroadRoute = { ...domesticRoute, consular: true, abroad: true };
+
+  function officialSources() {
+    return [
+      makeSource(
+        'S1',
+        'The standard four-year business permit application fee is EUR 250. All listed fees are exclusive of processing bank charges.',
+        'https://permits.example-gov.org/fees',
+        { authority: 'official' },
+      ),
+      makeSource(
+        'S2',
+        'Applicants resident abroad pay a consular fee of EUR 400 at the overseas mission when applying from outside the country.',
+        'https://permits.example-gov.org/abroad',
+        { authority: 'official' },
+      ),
+    ];
+  }
+
+  it('answers an in-scope fee question from an official passage', () => {
+    const answered = currencyQuestionAnswered(
+      {
+        question: 'What is the official fee for the domestic four-year business permit?',
+        reason: 'The exact published fee is needed before submission.',
+      },
+      officialSources(),
+      domesticRoute,
+    );
+    expect(answered).toBe(true);
+  });
+
+  it('keeps a bank-charge amount question open even when the fee itself is published', () => {
+    expect(
+      currencyQuestionAnswered(
+        {
+          question: 'What bank charge amount is added on top of the EUR 250 permit fee?',
+          reason: 'The sources only say charges are excluded.',
+        },
+        officialSources(),
+        domesticRoute,
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps a question open when no source mentions the requested service variant', () => {
+    expect(
+      currencyQuestionAnswered(
+        {
+          question: 'What does the urgent same-day premium permit service cost?',
+          reason: 'No retrieved source publishes an urgent or premium fee.',
+        },
+        officialSources(),
+        domesticRoute,
+      ),
+    ).toBe(false);
+  });
+
+  it('never answers a domestic request with opposite-location fee wording', () => {
+    expect(
+      currencyQuestionAnswered(
+        {
+          question:
+            'What is the consular fee for applicants resident abroad at the overseas mission?',
+          reason: 'This question is out of route for a domestic request.',
+        },
+        officialSources(),
+        domesticRoute,
+      ),
+    ).toBe(false);
+    // The same question on an abroad route is answered by the consular passage.
+    expect(
+      currencyQuestionAnswered(
+        {
+          question:
+            'What is the consular fee for applicants resident abroad at the overseas mission?',
+          reason: 'Consular processing for residents outside the country.',
+        },
+        officialSources(),
+        abroadRoute,
+      ),
+    ).toBe(true);
+  });
+
+  it('abstains on non-monetary questions and when no source publishes an amount', () => {
+    expect(
+      currencyQuestionAnswered(
+        { question: 'How long does permit review take after submission?', reason: 'Timeline gap.' },
+        officialSources(),
+        domesticRoute,
+      ),
+    ).toBe(false);
+    const textOnly = [
+      makeSource('S1', 'Applicants apply online and upload the required documents.', undefined, {
+        authority: 'official',
+      }),
+    ];
+    expect(
+      currencyQuestionAnswered(
+        { question: 'What is the domestic permit fee?', reason: 'No fee table was retrieved.' },
+        textOnly,
+        domesticRoute,
+      ),
+    ).toBe(false);
+  });
+
+  it('prefers official passages and lets secondary sources answer only when no official source exists', () => {
+    const secondaryOnly = [
+      makeSource(
+        'S1',
+        'An independent guide lists the domestic business permit fee as EUR 250.',
+        'https://guides.example.net/permits',
+        { authority: 'secondary' },
+      ),
+    ];
+    expect(
+      currencyQuestionAnswered(
+        {
+          question: 'What is the domestic business permit fee?',
+          reason: 'Only guides were retrieved.',
+        },
+        secondaryOnly,
+        domesticRoute,
+      ),
+    ).toBe(true);
+
+    const mixed = [
+      ...secondaryOnly,
+      makeSource(
+        'S2',
+        'The official register describes the application workflow without publishing any fee.',
+        'https://permits.example-gov.org/workflow',
+        { authority: 'official' },
+      ),
+    ];
+    expect(
+      currencyQuestionAnswered(
+        {
+          question: 'What is the domestic business permit fee?',
+          reason: 'An official source exists but names no amount.',
+        },
+        mixed,
+        domesticRoute,
+      ),
+    ).toBe(false);
   });
 });

@@ -13,6 +13,7 @@ import {
   type RuntimeReceipt,
 } from '../../src/shared/schemas';
 import {
+  currencyQuestionAnswered,
   findInstructionContradictions,
   jurisdictionCoverage,
   routeContextFromInput,
@@ -150,6 +151,10 @@ export interface EvidenceMetrics {
   // step later marked by a validated multi-source conflict.
   outcomeCounts: Record<EvidenceOutcome, number>;
   removedOutOfRouteQuestions: number;
+  // Unresolved fee questions removed because a retrieved in-scope source
+  // already publishes the requested figure with matching scope. The answer
+  // itself is never synthesized; it belongs on a supported step's citation.
+  evidenceResolvedQuestions: number;
 }
 
 export function validateEvidencePlan(options: ValidationOptions) {
@@ -372,14 +377,38 @@ export function validateEvidencePlan(options: ValidationOptions) {
   // sources: a question about the overseas/consular route cannot survive on a
   // domestic request (or vice versa). Questions whose scope is unspecified
   // are retained — authority gaps still need surfacing.
-  const keptQuestions = options.modelPlan.unresolvedQuestions.filter(
+  const inRouteQuestions = options.modelPlan.unresolvedQuestions.filter(
     (question) => !questionOutOfRoute(question, route),
   );
   const removedOutOfRouteQuestions =
-    options.modelPlan.unresolvedQuestions.length - keptQuestions.length;
+    options.modelPlan.unresolvedQuestions.length - inRouteQuestions.length;
   if (removedOutOfRouteQuestions) {
     warnings.push(
       `${removedOutOfRouteQuestions} unresolved question(s) were removed because they concern an overseas/consular application route that this request did not select.`,
+    );
+  }
+  // A fee question the retrieved evidence already answers must not stay open:
+  // the matching official passage grounds a supported plan step. Everything
+  // else (unpublished charge amounts, live availability, collection methods
+  // the sources do not describe) remains explicitly unresolved.
+  const answeredQuestionIds = new Set(
+    inRouteQuestions
+      .filter((question) =>
+        currencyQuestionAnswered(
+          { question: question.question, reason: question.reason },
+          options.sources,
+          route,
+        ),
+      )
+      .map((question) => question.id),
+  );
+  const evidenceResolvedQuestions = answeredQuestionIds.size;
+  const keptQuestions = inRouteQuestions.filter(
+    (question) => !answeredQuestionIds.has(question.id),
+  );
+  if (evidenceResolvedQuestions) {
+    warnings.push(
+      `${evidenceResolvedQuestions} unresolved question(s) were removed because retrieved sources already publish the requested fee with matching scope; the figure belongs on a supported plan step with its cited passage.`,
     );
   }
 
@@ -428,6 +457,7 @@ export function validateEvidencePlan(options: ValidationOptions) {
     rejectedConflicts,
     outcomeCounts,
     removedOutOfRouteQuestions,
+    evidenceResolvedQuestions,
   };
   return {
     plan: parsed,
