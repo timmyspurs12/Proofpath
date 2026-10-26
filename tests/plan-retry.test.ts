@@ -121,4 +121,30 @@ describe('runPlan retry contract', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(noWaitAdapters.sleep).toHaveBeenCalledTimes(2);
   });
+
+  it('preserves the retry contract for a low-level DNS failure and reports its stage', async () => {
+    mockRetrievalOnce();
+    const dnsFailure = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.tokenfactory.nebius.com'), {
+        code: 'ENOTFOUND',
+      }),
+    });
+    const fetchMock = vi.fn().mockRejectedValue(dnsFailure);
+    const client = new NebiusClient(config(), fetchMock, noWaitAdapters);
+
+    await expect(runPlan(client, new TavilyClient(config()), planInput())).rejects.toMatchObject({
+      code: 'NEBIUS_NETWORK_ERROR',
+      retryable: true,
+      details: {
+        attempts: 3,
+        lastCauseCode: 'ENOTFOUND',
+        lastSuspectedStage: 'dns',
+      },
+    });
+
+    // One retrieval, three identical re-POSTs, no plan materialized.
+    expect(retrieveSourcesMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[2][1].body);
+  });
 });

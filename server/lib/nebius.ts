@@ -69,6 +69,55 @@ const BACKOFF_CAP_MS = 4_000;
 // remains, so a truncated request cannot overrun the serverless budget.
 const MIN_REMAINING_ATTEMPT_MS = 1_500;
 
+// Best-effort location of a failure inside the connection lifecycle. This is
+// inferred from an allowlisted low-level error code only; raw error text is
+// never copied into details or logs.
+export type TransportStage =
+  'dns' | 'tcp' | 'tls' | 'connection-reset' | 'response' | 'connect' | 'unknown';
+
+export interface TransportCauseDetails {
+  causeCode: string;
+  suspectedStage: TransportStage;
+}
+
+// Codes emitted by Node/undici for failures before response headers arrive
+// (or while reading the body), mapped to the lifecycle stage they implicate.
+// Anything outside this allowlist is reported as an unknown network error,
+// which keeps hostnames, messages and credentials out of diagnostics.
+const CAUSE_STAGE: Record<string, Exclude<TransportStage, 'connect' | 'unknown'>> = {
+  ENOTFOUND: 'dns',
+  EAI_AGAIN: 'dns',
+  ECONNREFUSED: 'tcp',
+  EHOSTUNREACH: 'tcp',
+  ENETUNREACH: 'tcp',
+  ETIMEDOUT: 'tcp',
+  UND_ERR_CONNECT_TIMEOUT: 'tcp',
+  ECONNRESET: 'connection-reset',
+  EPIPE: 'connection-reset',
+  EPROTO: 'tls',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'tls',
+  CERT_HAS_EXPIRED: 'tls',
+  DEPTH_ZERO_SELF_SIGNED_CERT: 'tls',
+  SELF_SIGNED_CERT_IN_CHAIN: 'tls',
+  UND_ERR_HEADERS_TIMEOUT: 'response',
+  UND_ERR_BODY_TIMEOUT: 'response',
+};
+
+// undici wraps socket/DNS failures in `TypeError: fetch failed` and parks the
+// platform error on `.cause` (occasionally nested one level deeper). Walk a
+// short, bounded chain and return only the allowlisted code/stage pair.
+export function readTransportCause(error: unknown): TransportCauseDetails {
+  let current: unknown = error;
+  for (let depth = 0; depth < 3 && current && typeof current === 'object'; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && Object.hasOwn(CAUSE_STAGE, code)) {
+      return { causeCode: code, suspectedStage: CAUSE_STAGE[code] };
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return { causeCode: 'UNKNOWN_NETWORK_ERROR', suspectedStage: 'unknown' };
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -138,6 +187,10 @@ export class NebiusClient {
             : base.code === 'NEBIUS_NETWORK_ERROR'
               ? 'the network connection to Nebius kept failing'
               : 'Nebius stayed temporarily unavailable';
+    const lastDetails =
+      base.details && typeof base.details === 'object'
+        ? (base.details as TransportCauseDetails)
+        : null;
     return new AppError(
       base.status,
       base.code,
@@ -146,6 +199,8 @@ export class NebiusClient {
       {
         attempts,
         lastErrorCode: base.code,
+        lastCauseCode: lastDetails?.causeCode ?? null,
+        lastSuspectedStage: lastDetails?.suspectedStage ?? null,
         elapsedMs: Math.round(elapsedMs),
       },
     );
@@ -153,7 +208,9 @@ export class NebiusClient {
 
   // Maps a thrown transport error to a classified, retryable AppError. Aborts
   // fired by our own timers are distinguished by abortKind; an AbortError from
-  // elsewhere keeps the historical NEBIUS_TIMEOUT classification.
+  // elsewhere keeps the historical NEBIUS_TIMEOUT classification. Every path
+  // carries an allowlisted cause/stage pair so runtime logs can distinguish a
+  // DNS, TCP, TLS or reset failure without any raw error text.
   private transportError(abortKind: 'connect' | 'response' | null, error: unknown): AppError {
     const aborted = error instanceof Error && error.name === 'AbortError';
     if (aborted && abortKind === 'connect') {
@@ -162,6 +219,10 @@ export class NebiusClient {
         'NEBIUS_CONNECT_TIMEOUT',
         'Nebius could not be reached before the connection timeout.',
         true,
+        {
+          causeCode: 'CONNECT_DEADLINE_EXCEEDED',
+          suspectedStage: 'connect',
+        } satisfies TransportCauseDetails,
       );
     }
     if (aborted) {
@@ -170,13 +231,19 @@ export class NebiusClient {
         'NEBIUS_TIMEOUT',
         'Nebius did not respond before the timeout.',
         true,
+        {
+          causeCode: 'RESPONSE_DEADLINE_EXCEEDED',
+          suspectedStage: 'response',
+        } satisfies TransportCauseDetails,
       );
     }
+    const cause = readTransportCause(error);
     return new AppError(
       502,
       'NEBIUS_NETWORK_ERROR',
       'The Nebius request could not be completed because the network connection failed.',
       true,
+      cause,
     );
   }
 
@@ -366,8 +433,8 @@ export class NebiusClient {
         });
         return { output: output.data, receipt };
       } catch (error) {
-        const providerError =
-          error instanceof AppError ? error : this.transportError(abortKind, error);
+        const isTransportFailure = !(error instanceof AppError);
+        const providerError = isTransportFailure ? this.transportError(abortKind, error) : error;
         lastError = providerError;
         // Retries stay narrow: transport timeouts/network errors and the
         // explicitly retryable provider responses (429/5xx). Deterministic
@@ -376,6 +443,23 @@ export class NebiusClient {
           attempt < maxAttempts - 1 &&
           providerError.retryable &&
           !providerError.code.startsWith('INVALID_MODEL');
+        if (isTransportFailure) {
+          // Sanitized stage evidence for production runtime logs: only the
+          // classified code and allowlisted stage, never prompts or raw
+          // socket error text.
+          const cause =
+            providerError.details && typeof providerError.details === 'object'
+              ? (providerError.details as TransportCauseDetails)
+              : null;
+          logEvent('nebius_transport_failure', {
+            operation: request.operation,
+            attempt: attempt + 1,
+            code: providerError.code,
+            cause_code: cause?.causeCode ?? null,
+            suspected_stage: cause?.suspectedStage ?? null,
+            will_retry: canRetry,
+          });
+        }
         logEvent('nebius_completion_retry', {
           operation: request.operation,
           attempt: attempt + 1,
