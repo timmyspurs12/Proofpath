@@ -10,12 +10,12 @@ import type { RetrievedSource } from '../../server/lib/retrieval';
 // retrieval (HTTP fetch, not a model replay) is documented in
 // docs/technical-report-contradiction-2026-10.md.
 //
-// Transcription note (limitation, not a correction): NIS writes naira amounts
-// with a bare letter prefix ("N100,000"), which the generic currency
-// extractor does not parse; the excerpts keep that spelling exactly. The
-// dollar figures in the same SLA cells ("$150", "$230") are machine-parseable,
-// which is what the fee-scope trap step relies on. Nothing in the engine knows
-// these passages concern Nigeria: every country fact lives in this fixture.
+// Transcription note: NIS writes naira amounts with a bare letter prefix
+// ("N100,000"). The excerpts keep that spelling exactly; the generic currency
+// extractor parses grouped bare-prefix amounts through its domain-neutral
+// notation table, while the dollar figures in the same SLA cells ("$150",
+// "$230") parse through the symbol table. Nothing in the engine knows these
+// passages concern Nigeria: every country fact lives in this fixture.
 
 const RENEWAL_PAGE_TEXT = `Renewal of Passport
 

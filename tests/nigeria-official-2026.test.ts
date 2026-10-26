@@ -73,14 +73,16 @@ describe('Nigeria domestic renewal against current official NIS sources', () => 
     expect(trap.notes.join(' ')).toMatch(/5-year|10-year/);
   });
 
-  it('downgrades the included-bank-charges money claim and keeps the amount unresolved', () => {
+  it('downgrades the included-bank-charges money claim against the exclusive-charges policy', () => {
     const { plan, diagnostics } = validate();
     const trap = plan.steps.find((step) => step.id === 'step-8')!;
     expect(trap.status).toBe('unverifiable');
-    expect(trap.notes.join(' ')).toContain('appears in no retrieved source');
+    // The naira amount now parses, so the downgrade cites the precise
+    // document-level pricing policy rather than a missing-amount gap.
+    expect(trap.notes.join(' ')).toContain('exclude bank charges');
     const record = diagnostics.find(
       (entry) =>
-        entry.instructionId === 'bank-charges-trap' && entry.reasonCode === 'ungrounded-currency',
+        entry.instructionId === 'bank-charges-trap' && entry.reasonCode === 'fee-context-mismatch',
     );
     expect(record).toBeTruthy();
     expect(record!.decision).toBe('contradiction');

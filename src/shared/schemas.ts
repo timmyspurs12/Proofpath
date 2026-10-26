@@ -8,6 +8,19 @@ export const EvidenceStatusSchema = z.enum([
 ]);
 export type EvidenceStatus = z.infer<typeof EvidenceStatusSchema>;
 
+// Evidence outcomes distinguish failure modes that the coarse status enum
+// collapses. "invalid-citation" means the claim could not be verified because
+// its citation did not check out — it never means the claim is false.
+// "contradicted" is reserved for an explicit source conflict. "unverifiable"
+// means no usable evidence was supplied either way.
+export const EvidenceOutcomeSchema = z.enum([
+  'supported',
+  'contradicted',
+  'unverifiable',
+  'invalid-citation',
+]);
+export type EvidenceOutcome = z.infer<typeof EvidenceOutcomeSchema>;
+
 const HttpUrlSchema = z
   .string()
   .trim()
@@ -93,6 +106,17 @@ export const EvidenceCitationSchema = z.object({
 });
 export type EvidenceCitation = z.infer<typeof EvidenceCitationSchema>;
 
+export const RejectedCitationReasonSchema = z.enum(['source-not-retrieved', 'passage-not-found']);
+export type RejectedCitationReason = z.infer<typeof RejectedCitationReasonSchema>;
+
+// Rejected citations are retained for diagnosis and transparency instead of
+// being silently dropped: the quote the model supplied and the reason the
+// validator refused it remain visible next to the step.
+export const RejectedCitationSchema = EvidenceCitationSchema.extend({
+  reason: RejectedCitationReasonSchema,
+});
+export type RejectedCitation = z.infer<typeof RejectedCitationSchema>;
+
 export const SourceSchema = z.object({
   id: z.string().min(1).max(100),
   title: z.string().trim().min(1).max(300),
@@ -114,7 +138,15 @@ export const PlanStepSchema = z.object({
   instruction: z.string().trim().min(3).max(1_500),
   completionCriteria: z.string().trim().min(3).max(700),
   status: EvidenceStatusSchema,
+  // Distinguishes supported vs explicitly contradicted vs unable to verify
+  // vs citation-rejected for model-claimed supported steps; null/undefined for
+  // inferred steps, older stored plans, and anything not presented as an
+  // evidenced factual claim. The evidence validator always populates it.
+  evidenceOutcome: EvidenceOutcomeSchema.nullish(),
   evidence: z.array(EvidenceCitationSchema).max(4),
+  // Retained provenance for citations the gate refused; absent on older
+  // stored plans and on steps whose citations all passed.
+  rejectedCitations: z.array(RejectedCitationSchema).max(4).optional(),
   dueDate: z.string().trim().max(100).nullable(),
   dependsOn: z.array(z.string().min(1).max(100)).max(12),
   userEdited: z.boolean(),

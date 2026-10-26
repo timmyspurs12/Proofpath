@@ -5,18 +5,31 @@ import {
   EvidenceStatusSchema,
   PlanSchema,
   QuestionSchema,
+  type EvidenceOutcome,
   type Plan,
   type PlanRequest,
   type PlanStep,
+  type RejectedCitation,
   type RuntimeReceipt,
 } from '../../src/shared/schemas';
 import {
   findInstructionContradictions,
   jurisdictionCoverage,
   routeContextFromInput,
+  type ClaimContradictionKind,
   type ContradictionDiagnostic,
 } from './claim-checks';
 import type { RetrievedSource } from './retrieval';
+import { questionOutOfRoute } from './route-scope';
+
+// Findings that explicitly contradict a claim rather than merely failing to
+// verify it. Every other finding kind (ungrounded amount, conditional route,
+// fee-context/location mismatch) is an applicability or evidence gap and is
+// reported as "unverifiable", never as a falsity verdict.
+const EXPLICIT_CONTRADICTION_KINDS = new Set<ClaimContradictionKind>([
+  'currency-mismatch',
+  'negated-requirement',
+]);
 
 const ModelStepSchema = z
   .object({
@@ -133,6 +146,10 @@ export interface EvidenceMetrics {
   unsupportedClaimRate: number;
   validatedConflicts: number;
   rejectedConflicts: number;
+  // Per-claim outcome distribution for model-claimed supported steps and any
+  // step later marked by a validated multi-source conflict.
+  outcomeCounts: Record<EvidenceOutcome, number>;
+  removedOutOfRouteQuestions: number;
 }
 
 export function validateEvidencePlan(options: ValidationOptions) {
@@ -149,13 +166,26 @@ export function validateEvidencePlan(options: ValidationOptions) {
   let contradictedClaimCount = 0;
 
   const steps: PlanStep[] = options.modelPlan.steps.map((step, index) => {
+    // Rejected citations are preserved with a machine-readable reason so the
+    // model's provenance claim stays auditable instead of vanishing. A
+    // rejection never means the underlying claim is false: it only means the
+    // citation did not check out against a retrieved source.
+    const rejectedCitations: RejectedCitation[] = [];
     const validEvidence = step.evidence.filter((citation) => {
       const valid = citationIsValid(citation, options.sources);
-      if (!valid) invalidCitationCount += 1;
+      if (!valid) {
+        invalidCitationCount += 1;
+        const sourceExists = options.sources.some((entry) => entry.source.id === citation.sourceId);
+        rejectedCitations.push({
+          sourceId: citation.sourceId,
+          quote: citation.quote,
+          reason: sourceExists ? 'passage-not-found' : 'source-not-retrieved',
+        });
+      }
       return valid;
     });
     const notes: string[] = [];
-    if (validEvidence.length < step.evidence.length) {
+    if (rejectedCitations.length) {
       notes.push('One or more model citations failed exact-passage validation and were removed.');
     }
     if (step.claimedStatus === 'supported') {
@@ -163,12 +193,16 @@ export function validateEvidencePlan(options: ValidationOptions) {
       if (!validEvidence.length) unsupportedModelClaims += 1;
     }
     let status = step.claimedStatus;
+    let evidenceOutcome: EvidenceOutcome | null = null;
     if (status === 'supported' && !validEvidence.length) {
       status = 'unverifiable';
+      // Invalid citation is a verification failure, never a falsity verdict.
+      evidenceOutcome = 'invalid-citation';
       notes.push('Support was removed because no cited passage exists in a retrieved source.');
     }
     if (status === 'conflicting') {
       status = 'unverifiable';
+      evidenceOutcome = 'unverifiable';
       notes.push(
         'A conflict must be validated against at least two cited sources before it is shown as conflicting.',
       );
@@ -189,9 +223,21 @@ export function validateEvidencePlan(options: ValidationOptions) {
         contradictedClaimCount += 1;
         unsupportedModelClaims += 1;
         status = 'unverifiable';
+        // Only an explicit in-scope conflict (a source publishing a different
+        // figure for the same fee, or directly negating the requirement) is a
+        // contradiction. A missing passage, an ungrounded amount, or a
+        // different-route/different-location passage means the claim cannot
+        // be verified here — never that the claim is false.
+        evidenceOutcome = contradictions.some((entry) =>
+          EXPLICIT_CONTRADICTION_KINDS.has(entry.kind),
+        )
+          ? 'contradicted'
+          : 'unverifiable';
         for (const contradiction of contradictions) {
           notes.push(contradiction.detail);
         }
+      } else {
+        evidenceOutcome = 'supported';
       }
     }
     const verifiedDueDate =
@@ -212,7 +258,9 @@ export function validateEvidencePlan(options: ValidationOptions) {
       instruction: step.instruction,
       completionCriteria: step.completionCriteria,
       status,
+      evidenceOutcome,
       evidence: validEvidence,
+      rejectedCitations: rejectedCitations.slice(0, 4),
       dueDate: status === 'supported' ? verifiedDueDate : null,
       dependsOn: step.dependsOn,
       userEdited: false,
@@ -253,6 +301,9 @@ export function validateEvidencePlan(options: ValidationOptions) {
     if (conflictedStepIds.has(step.id)) {
       step.status = 'conflicting';
       step.dueDate = null;
+      if (step.evidenceOutcome === 'supported') {
+        step.evidenceOutcome = 'contradicted';
+      }
       if (
         !step.notes.includes(
           'Nemotron flagged a conflict between the cited passages. Review both sources before acting.',
@@ -317,6 +368,21 @@ export function validateEvidencePlan(options: ValidationOptions) {
     );
   }
 
+  // Unresolved questions follow the same route discipline as steps and
+  // sources: a question about the overseas/consular route cannot survive on a
+  // domestic request (or vice versa). Questions whose scope is unspecified
+  // are retained — authority gaps still need surfacing.
+  const keptQuestions = options.modelPlan.unresolvedQuestions.filter(
+    (question) => !questionOutOfRoute(question, route),
+  );
+  const removedOutOfRouteQuestions =
+    options.modelPlan.unresolvedQuestions.length - keptQuestions.length;
+  if (removedOutOfRouteQuestions) {
+    warnings.push(
+      `${removedOutOfRouteQuestions} unresolved question(s) were removed because they concern an overseas/consular application route that this request did not select.`,
+    );
+  }
+
   const timestamp = (options.now?.() ?? new Date()).toISOString();
   const plan: Plan = {
     version: 1,
@@ -330,7 +396,7 @@ export function validateEvidencePlan(options: ValidationOptions) {
     sources: options.sources.map((entry) => entry.source),
     steps: orderedSteps,
     conflicts,
-    unresolvedQuestions: options.modelPlan.unresolvedQuestions,
+    unresolvedQuestions: keptQuestions,
     warnings: warnings.slice(0, 20),
     runtime: options.runtime,
     completedStepIds: [],
@@ -340,6 +406,15 @@ export function validateEvidencePlan(options: ValidationOptions) {
   const validatedSupportedClaims = parsed.steps.filter(
     (step) => step.status === 'supported',
   ).length;
+  const outcomeCounts: Record<EvidenceOutcome, number> = {
+    supported: 0,
+    contradicted: 0,
+    unverifiable: 0,
+    'invalid-citation': 0,
+  };
+  for (const step of parsed.steps) {
+    if (step.evidenceOutcome) outcomeCounts[step.evidenceOutcome] += 1;
+  }
   const metrics: EvidenceMetrics = {
     stepCount: parsed.steps.length,
     modelSupportedClaims,
@@ -351,6 +426,8 @@ export function validateEvidencePlan(options: ValidationOptions) {
     unsupportedClaimRate: modelSupportedClaims ? unsupportedModelClaims / modelSupportedClaims : 0,
     validatedConflicts: conflicts.length,
     rejectedConflicts,
+    outcomeCounts,
+    removedOutOfRouteQuestions,
   };
   return {
     plan: parsed,

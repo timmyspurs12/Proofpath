@@ -1,5 +1,10 @@
 import type { Plan } from '../shared/schemas';
-import { evidenceLabels, safeFilename } from './utils';
+import {
+  evidenceLabels,
+  evidenceOutcomeLabels,
+  rejectedCitationReasonLabels,
+  safeFilename,
+} from './utils';
 
 export function planToMarkdown(plan: Plan) {
   const lines = [
@@ -23,6 +28,9 @@ export function planToMarkdown(plan: Plan) {
     lines.push(
       `**Evidence:** ${evidenceLabels[step.status]}${step.userEdited ? ' · edited by user' : ''}`,
     );
+    if (step.evidenceOutcome) {
+      lines.push(`**Evidence outcome:** ${evidenceOutcomeLabels[step.evidenceOutcome]}`);
+    }
     lines.push('');
     lines.push(step.instruction);
     lines.push('');
@@ -38,6 +46,17 @@ export function planToMarkdown(plan: Plan) {
           `> ${citation.quote}`,
           '',
           `— ${source?.publisher ?? citation.sourceId}${source?.url ? ` <${source.url}>` : ''}`,
+        );
+      });
+    }
+    if ((step.rejectedCitations ?? []).length) {
+      lines.push('', '**Rejected citations (retained for diagnosis; not evidence):**');
+      step.rejectedCitations!.forEach((citation) => {
+        lines.push(
+          '',
+          `> ${citation.quote}`,
+          '',
+          `— ${citation.sourceId}: ${rejectedCitationReasonLabels[citation.reason]}`,
         );
       });
     }

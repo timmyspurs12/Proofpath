@@ -213,7 +213,16 @@ describe('Nigeria evidence-quality acceptance evaluator (offline fixtures)', () 
       observations.map((entry: TrapObservation) => [entry.reasonCode, entry.classification]),
     );
     expect(classifications.get('fee-context-mismatch')).toBe('legitimate');
-    expect(classifications.get('ungrounded-currency')).toBe('legitimate');
+    // The bank-charges trap previously surfaced as an ungrounded-currency
+    // record only because the bare-prefix naira amount ("N100,000") could not
+    // be parsed. With generic bare-prefix parsing plus document-level pricing
+    // policy, it now downgrades precisely via fee-context-mismatch, so no
+    // ungrounded-currency decision remains in this fixture — and every
+    // observed decision is still a legitimate same-subject downgrade.
+    expect(classifications.has('ungrounded-currency')).toBe(false);
+    for (const classification of classifications.values()) {
+      expect(classification).toBe('legitimate');
+    }
     // Every observation resolves to the actual final step id, title and status.
     for (const observation of observations) {
       expect(observation.finalStepId).toMatch(/^step-\d+$/);

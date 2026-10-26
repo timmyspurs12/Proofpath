@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { AppConfig } from '../server/config';
 import { DEFAULT_NEBIUS_MODEL, normalizeNebiusBaseUrl } from '../server/config';
-import { NebiusClient } from '../server/lib/nebius';
+import { NebiusClient, backoffDelayMs } from '../server/lib/nebius';
 
 function config(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -172,5 +172,141 @@ describe('Nebius configuration and transport', () => {
     ).toThrow();
     expect(() => normalizeNebiusBaseUrl('http://api.tokenfactory.nebius.com/v1')).toThrow();
     expect(() => normalizeNebiusBaseUrl('https://evil.test/v1')).toThrow();
+  });
+});
+
+describe('Nebius bounded retries, backoff and timeout classification', () => {
+  const retryRequest = {
+    ...request,
+    maxAttempts: 3,
+    timeoutMs: 30_000,
+    connectTimeoutMs: 10_000,
+    totalTimeoutMs: 45_000,
+  };
+  // Deterministic no-wait backoff with the jitter factor pinned at 1.0, so
+  // delays are exactly the capped exponential schedule 500, 1000, 2000, ...
+  const noWait = () => ({ sleep: vi.fn().mockResolvedValue(undefined), random: () => 0.5 });
+  const abortError = () => new DOMException('Aborted', 'AbortError');
+
+  it('recovers after one timeout by retrying the identical request body', async () => {
+    const adapters = noWait();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(abortError())
+      .mockResolvedValueOnce(completion('{"ok":true}'));
+    const client = new NebiusClient(config(), fetchMock, adapters);
+    const result = await client.complete(retryRequest, outputSchema);
+
+    expect(result.output).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The retry re-sends the exact same payload: no second, divergent plan.
+    expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[1][1].body);
+    expect(adapters.sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('exhausts the bounded attempts on repeated timeouts with an actionable error', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(abortError());
+    const client = new NebiusClient(config(), fetchMock, noWait());
+    const error = await client.complete(retryRequest, outputSchema).catch((e) => e);
+    expect(error).toMatchObject({
+      code: 'NEBIUS_TIMEOUT',
+      retryable: true,
+      details: { attempts: 3, lastErrorCode: 'NEBIUS_TIMEOUT' },
+    });
+    expect(error.message).toMatch(/after 3 attempts/);
+    expect(error.message).toMatch(/Retry/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('classifies a stalled connection separately from a slow response', async () => {
+    // Mirrors real fetch: a never-established connection rejects when the
+    // abort signal fires. Headers never arrive, so the connect timer wins.
+    const fetchMock = vi.fn(
+      (_url: URL | RequestInfo, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(abortError()));
+        }),
+    );
+    const client = new NebiusClient(config(), fetchMock, noWait());
+    const started = Date.now();
+    await expect(
+      client.complete(
+        {
+          ...request,
+          maxAttempts: 1,
+          connectTimeoutMs: 25,
+          timeoutMs: 5_000,
+          totalTimeoutMs: 30_000,
+        },
+        outputSchema,
+      ),
+    ).rejects.toMatchObject({ code: 'NEBIUS_CONNECT_TIMEOUT' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries transient network errors with exponential jittered backoff and then fails closed', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const client = new NebiusClient(config(), fetchMock, { sleep, random: () => 0.5 });
+    await expect(
+      client.complete({ ...retryRequest, maxAttempts: 4 }, outputSchema),
+    ).rejects.toMatchObject({
+      code: 'NEBIUS_NETWORK_ERROR',
+      retryable: true,
+      details: { attempts: 4, lastErrorCode: 'NEBIUS_NETWORK_ERROR' },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Three backoff waits between four attempts: base 500 doubled each time.
+    expect(sleep.mock.calls.map((call) => call[0])).toEqual([500, 1000, 2000]);
+  });
+
+  it('never starts an attempt the total deadline cannot contain', async () => {
+    // Headers arrive, but the body read stalls until the response timer
+    // aborts; the total deadline then forbids a second attempt.
+    const fetchMock = vi.fn((_url: URL | RequestInfo, init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(abortError()));
+          }),
+      } as Response),
+    );
+    const client = new NebiusClient(config(), fetchMock, noWait());
+    const started = Date.now();
+    await expect(
+      client.complete(
+        {
+          ...request,
+          maxAttempts: 4,
+          timeoutMs: 5_000,
+          connectTimeoutMs: 60_000,
+          totalTimeoutMs: 1_600,
+        },
+        outputSchema,
+      ),
+    ).rejects.toMatchObject({
+      code: 'NEBIUS_TIMEOUT',
+      details: { attempts: 1 },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(Date.now() - started).toBeLessThan(2_200);
+  });
+
+  it('clamps excessive configured attempts to the bounded maximum', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(abortError());
+    const client = new NebiusClient(config(), fetchMock, noWait());
+    await expect(
+      client.complete({ ...retryRequest, maxAttempts: 99 }, outputSchema),
+    ).rejects.toMatchObject({ details: { attempts: 4 } });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('backoffDelayMs grows exponentially, stays jitter-bounded and caps at the maximum', async () => {
+    expect(backoffDelayMs(0, 500, 4000, () => 0)).toBe(375);
+    expect(backoffDelayMs(0, 500, 4000, () => 1)).toBe(625);
+    expect(backoffDelayMs(2, 500, 4000, () => 0.5)).toBe(2000);
+    expect(backoffDelayMs(9, 500, 4000, () => 0.5)).toBe(4000);
   });
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IntakeRequest, IntakeResponse, PlanRequest } from '../../src/shared/schemas';
+import { routeContextFromInput } from './claim-checks';
 import { validateEvidencePlan, ModelPlanSchema, type ModelPlan } from './evidence';
 import { mergeClarifications, requiredClarifications } from './intake';
 import type { NebiusClient } from './nebius';
@@ -177,7 +178,12 @@ export async function runIntake(
       schemaName: 'proofpath_intake',
       jsonSchema: INTAKE_JSON_SCHEMA,
       maxTokens: 700,
-      timeoutMs: 20_000,
+      // Small structured intake payload: one bounded automatic retry inside a
+      // 25s total budget, with a separate 8s connection deadline.
+      timeoutMs: 15_000,
+      connectTimeoutMs: 8_000,
+      totalTimeoutMs: 25_000,
+      maxAttempts: 2,
     },
     IntakeModelSchema,
   );
@@ -214,6 +220,7 @@ export async function runPlan(
   }
 > {
   client.ensureConfigured();
+  const route = routeContextFromInput(input);
   const retrieval = await retrieveSources({
     directUrls: input.sourceUrls,
     searchQueries: input.searchQueries,
@@ -221,6 +228,7 @@ export async function runPlan(
     jurisdiction: input.jurisdiction,
     document: input.document,
     tavily,
+    route,
   });
   const userPrompt = JSON.stringify({
     goal: input.goal,
@@ -239,10 +247,16 @@ export async function runPlan(
       schemaName: 'proofpath_action_plan',
       jsonSchema: PLAN_JSON_SCHEMA,
       maxTokens: 5_000,
-      timeoutMs: 35_000,
-      // Keep retrieval + inference inside a 60-second serverless request budget.
-      // The user can explicitly retry; intake retains one automatic retry.
-      maxAttempts: 1,
+      // Bounded retries for transient timeouts/network failures only. The
+      // 45s total inference deadline keeps retrieval + inference inside the
+      // 60s serverless function budget; fast connection failures allow all
+      // three attempts, while a full timeout leaves room for one shorter
+      // retry before the deadline stops further attempts. Retries re-POST
+      // the identical request; retrieval already happened exactly once above.
+      timeoutMs: 30_000,
+      connectTimeoutMs: 10_000,
+      totalTimeoutMs: 45_000,
+      maxAttempts: 3,
     },
     ModelPlanSchema,
   );

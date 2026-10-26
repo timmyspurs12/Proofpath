@@ -87,8 +87,10 @@ export function extractFeeQualifiers(text: string): FeeQualifiers {
   const validityYears = validityMatch ? Number(validityMatch[1] ?? validityMatch[2]) : null;
   let bankCharges: FeeQualifiers['bankCharges'] = null;
   if (BANK_CHARGES.test(text)) {
-    if (/\bexclud\w+/.test(text)) bankCharges = 'excluded';
-    else if (/\binclud\w+|plus|in addition to\b/.test(text)) bankCharges = 'included';
+    // Case-insensitive: covers both stems — "exclude/excludes/excluded/
+    // excluding" and "exclusive of", the wording official fee schedules use.
+    if (/\bexclu[sd]\w*/i.test(text)) bankCharges = 'excluded';
+    else if (/\binclud\w+|plus|in addition to\b/i.test(text)) bankCharges = 'included';
   }
   return { location, bookletPages, validityYears, bankCharges };
 }
@@ -196,6 +198,20 @@ const CURRENCY_SYMBOLS: Record<string, CurrencyCode> = {
   '₩': 'KRW',
 };
 
+// Typographic single-letter prefixes some official publishers use instead of
+// the currency symbol or ISO code (e.g. "N100,000"). Like the symbol table
+// above, this is domain-neutral monetary notation data, not a country rule:
+// entries map writing conventions to ISO codes, and any letter absent from
+// the table is simply not treated as money.
+const CURRENCY_LETTER_PREFIXES: Record<string, CurrencyCode> = {
+  N: 'NGN',
+};
+// Bare prefixes only match money-style grouped amounts on purpose: requiring
+// thousands separators keeps identifiers and ordinary tokens such as "S1",
+// "A1" or "N95" from being misread as fees.
+const PREFIX_NUMBER = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?`;
+const LETTER_PREFIX_AMOUNT = new RegExp(String.raw`(?<![A-Za-z0-9])([A-Z])(${PREFIX_NUMBER})`, 'g');
+
 const NUMBER = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?`;
 // The lookbehind stops the "$" inside "R$100" from being read as US dollars.
 const SYMBOL_AMOUNT = new RegExp(String.raw`(?<![A-Za-z])([£$€₦₹¥₩])\s?(${NUMBER})`, 'g');
@@ -223,6 +239,10 @@ export function extractCurrencyClaims(text: string): CurrencyClaim[] {
   }
   for (const match of text.matchAll(SYMBOL_AMOUNT)) {
     record(CURRENCY_SYMBOLS[match[1]], match[2], match[0].replace(/\s+/g, ''));
+  }
+  for (const match of text.matchAll(LETTER_PREFIX_AMOUNT)) {
+    const currency = CURRENCY_LETTER_PREFIXES[match[1]];
+    if (currency) record(currency, match[2], match[0]);
   }
   for (const match of text.matchAll(CODE_BEFORE)) {
     record(match[1], match[2], match[0]);
@@ -913,7 +933,9 @@ export function findInstructionContradictions(
       const incompatible = matching.filter(
         (entry) => qualifierConflicts(claimedQualifiers, entry.qualifiers).length > 0,
       );
+      let contextMismatch = false;
       if (incompatible.length === matching.length) {
+        contextMismatch = true;
         const reasons = [
           ...new Set(
             matching.flatMap((entry) => qualifierConflicts(claimedQualifiers, entry.qualifiers)),
@@ -930,7 +952,31 @@ export function findInstructionContradictions(
           'fee-context-mismatch',
           incompatible[0] ?? null,
         );
-      } else {
+      }
+      // A document-wide pricing condition governs every fee in that source
+      // even when it is published in a separate sentence (for example "All
+      // Prices are Exclusive of Bank Charges"). An instruction that folds
+      // such charges into the fee conflicts with the policy itself, so a
+      // compatible amount passage in another sentence cannot ground it.
+      if (!contextMismatch && claimedQualifiers.bankCharges === 'included') {
+        const officialPolicySources = input.sources.filter(
+          (entry) => entry.source.authority === 'official',
+        );
+        const policyPool = officialPolicySources.length ? officialPolicySources : input.sources;
+        const exclusiveSource = policyPool.find(
+          (entry) => extractFeeQualifiers(entry.text).bankCharges === 'excluded',
+        );
+        if (exclusiveSource) {
+          contextMismatch = true;
+          push(
+            'fee-context-mismatch',
+            `Support withdrawn: the ${claim.surface} figure appears in evidence, but a retrieved source states all prices exclude bank charges while the instruction treats them as included.`,
+            [exclusiveSource.source.id],
+          );
+          recordCurrency('contradiction', 'fee-context-mismatch', 'fee-context-mismatch', null);
+        }
+      }
+      if (!contextMismatch) {
         recordCurrency('not_contradiction', 'currency-claim-grounded', null, matching[0] ?? null);
       }
     }

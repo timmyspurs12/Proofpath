@@ -1,10 +1,30 @@
-import type { EvidenceStatus, Plan } from '../shared/schemas';
+import type {
+  EvidenceOutcome,
+  EvidenceStatus,
+  Plan,
+  RejectedCitationReason,
+} from '../shared/schemas';
 
 export const evidenceLabels: Record<EvidenceStatus, string> = {
   supported: 'Supported by source',
   inferred: 'Inferred — confirm',
   conflicting: 'Conflicting evidence',
   unverifiable: 'Unable to verify',
+};
+
+// Distinct outcome wording: an invalid citation is a verification failure,
+// never a claim that the instruction is false or contradicted.
+export const evidenceOutcomeLabels: Record<EvidenceOutcome, string> = {
+  supported: 'Supported — passage verified in a retrieved source.',
+  contradicted: 'Contradicted — an explicit conflict was found in source evidence.',
+  unverifiable: 'Unable to verify — no usable evidence settled the claim.',
+  'invalid-citation':
+    'Invalid citation — the cited passage could not be verified; this does not mean the claim is false.',
+};
+
+export const rejectedCitationReasonLabels: Record<RejectedCitationReason, string> = {
+  'passage-not-found': 'Passage not found in the cited source',
+  'source-not-retrieved': 'Cited source was not in the retrieved source set',
 };
 
 export function classNames(...values: Array<string | false | null | undefined>) {
