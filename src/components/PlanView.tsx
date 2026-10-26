@@ -29,7 +29,15 @@ import {
 } from '../shared/schemas';
 import { usePlanLibrary } from '../context/PlanLibraryContext';
 import { apiFetch, ApiError } from '../lib/api';
-import { downloadText, formatDate, planProgress, safeFilename, supportedCount } from '../lib/utils';
+import {
+  downloadText,
+  evidenceOutcomeLabels,
+  formatDate,
+  planProgress,
+  rejectedCitationReasonLabels,
+  safeFilename,
+  supportedCount,
+} from '../lib/utils';
 import { planJsonFilename, planMarkdownFilename, planToMarkdown } from '../lib/export';
 import { RuntimeReceipt } from './RuntimeReceipt';
 import { Alert, Button, ConfirmDialog, EvidenceBadge, Toast } from './ui';
@@ -502,6 +510,14 @@ export function PlanView({ plan }: { plan: Plan }) {
                             <EvidenceBadge status={step.status} />
                             {step.userEdited && <span className="edited-badge">Edited by you</span>}
                           </div>
+                          {step.evidenceOutcome && (
+                            <p
+                              className={`evidence-outcome outcome-${step.evidenceOutcome}`}
+                              data-testid={`outcome-${step.id}`}
+                            >
+                              {evidenceOutcomeLabels[step.evidenceOutcome]}
+                            </p>
+                          )}
                         </div>
                         {editing && (
                           <button
@@ -659,10 +675,34 @@ export function PlanView({ plan }: { plan: Plan }) {
                             })}
                           </div>
                         )}
+                        {(step.rejectedCitations ?? []).length > 0 && (
+                          <div className="evidence-list rejected-evidence">
+                            {step.rejectedCitations!.map((citation, citationIndex) => (
+                              <details
+                                className="evidence-detail"
+                                key={`rejected-${citation.sourceId}-${citationIndex}`}
+                              >
+                                <summary>
+                                  <Link2 size={14} /> Rejected citation from {citation.sourceId}
+                                  <span>{rejectedCitationReasonLabels[citation.reason]}</span>
+                                  <ChevronDown size={14} />
+                                </summary>
+                                <div>
+                                  <blockquote>“{citation.quote}”</blockquote>
+                                  <p className="evidence-limitation">
+                                    {rejectedCitationReasonLabels[citation.reason]}. The claim
+                                    itself is not marked false; only this citation was refused.
+                                  </p>
+                                </div>
+                              </details>
+                            ))}
+                          </div>
+                        )}
                         {!editing && step.status === 'unverifiable' && (
                           <p className="unverified-note">
-                            This is a model-generated suggestion without a verified supporting
-                            passage. Confirm it independently before acting.
+                            {step.evidenceOutcome === 'invalid-citation'
+                              ? 'The model supplied a citation that could not be verified, so support was removed. The claim is not marked false — confirm it independently before acting.'
+                              : 'This is a model-generated suggestion without a verified supporting passage. Confirm it independently before acting.'}
                           </p>
                         )}
                       </div>

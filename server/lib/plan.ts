@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IntakeRequest, IntakeResponse, PlanRequest } from '../../src/shared/schemas';
+import { routeContextFromInput } from './claim-checks';
 import { validateEvidencePlan, ModelPlanSchema, type ModelPlan } from './evidence';
 import { mergeClarifications, requiredClarifications } from './intake';
 import type { NebiusClient } from './nebius';
@@ -219,6 +220,7 @@ export async function runPlan(
   }
 > {
   client.ensureConfigured();
+  const route = routeContextFromInput(input);
   const retrieval = await retrieveSources({
     directUrls: input.sourceUrls,
     searchQueries: input.searchQueries,
@@ -226,6 +228,7 @@ export async function runPlan(
     jurisdiction: input.jurisdiction,
     document: input.document,
     tavily,
+    route,
   });
   const userPrompt = JSON.stringify({
     goal: input.goal,

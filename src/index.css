@@ -2253,6 +2253,34 @@ code {
   line-height: 1.6;
 }
 
+.evidence-outcome {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.evidence-outcome.outcome-supported {
+  color: var(--teal);
+}
+
+.evidence-outcome.outcome-contradicted {
+  color: var(--red);
+}
+
+.evidence-outcome.outcome-unverifiable,
+.evidence-outcome.outcome-invalid-citation {
+  color: var(--amber);
+}
+
+.rejected-evidence .evidence-detail summary {
+  color: var(--amber);
+}
+
+.rejected-evidence .evidence-detail blockquote {
+  border-left-color: var(--amber);
+}
+
 .step-complete .step-title-wrap h3 {
   color: var(--muted);
   text-decoration: line-through;

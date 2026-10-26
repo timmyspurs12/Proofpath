@@ -74,6 +74,23 @@ describe('currency claim extraction', () => {
     const claims = extractCurrencyClaims('The code ABC 500 is a reference number, not money.');
     expect(claims).toEqual([]);
   });
+
+  it('parses a registered typographic letter prefix on a grouped money amount', () => {
+    // Official publishers sometimes write "N100,000" instead of "₦100,000".
+    const claims = extractCurrencyClaims(
+      '32 Pages 5-Years Validity is N100,000/$150 and reissue costs N30,000.',
+    );
+    expect(claims).toContainEqual({ currency: 'NGN', amount: 100000, surface: 'N100,000' });
+    expect(claims).toContainEqual({ currency: 'NGN', amount: 30000, surface: 'N30,000' });
+    expect(claims).toContainEqual({ currency: 'USD', amount: 150, surface: '$150' });
+  });
+
+  it('never reads identifiers or ungrouped numbers as prefixed money', () => {
+    // Grouping is required: source IDs, form codes and small tokens stay inert.
+    expect(extractCurrencyClaims('See source S1 and clause A1 and mask N95.')).toEqual([]);
+    // An unregistered prefix letter is not guessed at, even when grouped.
+    expect(extractCurrencyClaims('Reference X100,000 for the case officer.')).toEqual([]);
+  });
 });
 
 describe('route context and term extraction', () => {

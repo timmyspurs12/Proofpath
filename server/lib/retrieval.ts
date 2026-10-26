@@ -4,9 +4,11 @@ import { isIP } from 'node:net';
 import * as cheerio from 'cheerio';
 import type { DocumentInput } from '../../src/shared/schemas';
 import type { Source, SourceCheck } from '../../src/shared/schemas';
+import type { RouteContext } from './claim-checks';
 import { AppError } from './errors';
 import { logEvent } from './logger';
 import { MAX_PDF_BYTES, extractPdfText } from './pdf';
+import { scopeConflictsWithRoute, textLocationScope } from './route-scope';
 import type { TavilyClient } from './tavily';
 
 const MAX_SOURCE_CHARACTERS = 30_000;
@@ -392,6 +394,10 @@ interface RetrieveOptions {
   jurisdiction: string;
   document: DocumentInput | null;
   tavily: TavilyClient;
+  // Optional requested-route context used to keep discovered foreign-mission
+  // material out of a domestic packet (and vice versa). Direct user-supplied
+  // URLs are never scope-filtered: the explicit URL is itself the instruction.
+  route?: Pick<RouteContext, 'abroad'>;
 }
 
 export interface RankedCandidate {
@@ -452,10 +458,14 @@ function rankingTerms(context: RankingContext): string[] {
 // Domain-agnostic ranking within the six-source cap: official-host authority
 // is the primary tier, relevance to the goal/queries/jurisdiction is the
 // secondary score, and user-supplied direct URLs win ties. No country table is
-// involved; malformed URLs sink to the bottom instead of throwing.
+// involved; malformed URLs sink to the bottom instead of throwing. When route
+// context is supplied, discovered (never direct) candidates whose URL or title
+// advertise the opposite application location are sunk below in-scope
+// secondary sources so a foreign-mission page cannot crowd out domestic ones.
 export function rankCandidates(
   candidates: RankedCandidate[],
   context: RankingContext,
+  route?: Pick<RouteContext, 'abroad'>,
 ): RankedCandidate[] {
   const unique = candidates.filter(
     (candidate, index) => candidates.findIndex((other) => other.url === candidate.url) === index,
@@ -479,7 +489,14 @@ export function rankCandidates(
       0,
     );
     const directBonus = candidate.discovery === 'direct' ? 1 : 0;
-    const score = relevance * 10 + directBonus - authorityTier * 1000;
+    // A route conflict only penalizes search-discovered candidates; an
+    // explicit user URL is an instruction and keeps its normal ranking.
+    const oppositeRoute =
+      route && candidate.discovery === 'tavily'
+        ? scopeConflictsWithRoute(textLocationScope(haystack), route)
+        : false;
+    const routePenalty = oppositeRoute ? 500 : 0;
+    const score = relevance * 10 + directBonus - authorityTier * 1000 - routePenalty;
     return { candidate, index, score };
   });
   return scored
@@ -567,11 +584,15 @@ export async function retrieveSources(options: RetrieveOptions) {
     tavilyRequestIds = tavilyRequestIds.slice(0, 2);
   }
 
-  const ranked = rankCandidates(candidates, {
-    goal: options.goal,
-    searchQueries: options.searchQueries,
-    jurisdiction: options.jurisdiction,
-  });
+  const ranked = rankCandidates(
+    candidates,
+    {
+      goal: options.goal,
+      searchQueries: options.searchQueries,
+      jurisdiction: options.jurisdiction,
+    },
+    options.route,
+  );
   const remaining = Math.max(0, MAX_SOURCES - sources.length);
   // The queue holds ranked candidates beyond the first batch so that a failed
   // fetch can be replaced by the next-ranked official or secondary source
@@ -613,6 +634,23 @@ export async function retrieveSources(options: RetrieveOptions) {
     ledger.excluded.push({ host, reason: detail });
   };
 
+  // Post-fetch scope gate. Only search-discovered candidates are eligible:
+  // an explicit user URL is itself an instruction, and direct official
+  // documents can legitimately contain a paragraph about the other route
+  // (their individual sentences are handled by the contradiction scope gates).
+  const scopeExcluded = (candidate: RankedCandidate, fetched: RetrievedSource): boolean => {
+    if (!options.route || candidate.discovery !== 'tavily') return false;
+    return scopeConflictsWithRoute(textLocationScope(fetched.text), options.route);
+  };
+  const describeScopeExclusion = (url: string) => {
+    const host = hostOf(url);
+    const reason = options.route?.abroad
+      ? 'Excluded: the discovered source is scoped to domestic processing, which this overseas request did not select.'
+      : 'Excluded: the discovered source is scoped to overseas/consular processing, which this domestic request did not select.';
+    warnings.push(`${host}: ${reason}`);
+    ledger.excluded.push({ host, reason });
+  };
+
   const results = await Promise.allSettled(
     selected.map((candidate, index) =>
       fetchSource(candidate.url, `S${sources.length + index + 1}`, candidate.discovery),
@@ -622,6 +660,11 @@ export async function retrieveSources(options: RetrieveOptions) {
   let failureCount = 0;
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
+      if (scopeExcluded(selected[index], result.value)) {
+        failureCount += 1;
+        describeScopeExclusion(selected[index].url);
+        return;
+      }
       sources.push(result.value);
       ledger.parsed += 1;
     } else {
@@ -642,9 +685,14 @@ export async function retrieveSources(options: RetrieveOptions) {
     const id = `S${sources.length + selected.length + backfills + 1}`;
     ledger.fetched += 1;
     try {
-      sources.push(await fetchSource(candidate.url, id, candidate.discovery));
-      ledger.parsed += 1;
-      ledger.selected.push(hostOf(candidate.url));
+      const fetched = await fetchSource(candidate.url, id, candidate.discovery);
+      if (scopeExcluded(candidate, fetched)) {
+        describeScopeExclusion(candidate.url);
+      } else {
+        sources.push(fetched);
+        ledger.parsed += 1;
+        ledger.selected.push(hostOf(candidate.url));
+      }
     } catch (error) {
       describeFailure(candidate.url, error);
     }
