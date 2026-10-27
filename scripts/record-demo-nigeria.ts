@@ -89,6 +89,15 @@ interface PlanApiEnvelope {
   };
 }
 
+interface ApiErrorEnvelope {
+  error: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    details?: unknown;
+  };
+}
+
 interface StepSnapshot {
   title: string;
   statusText: string;
@@ -116,6 +125,7 @@ interface Sidecar {
   observations: Observations | null;
   acceptancePassed: boolean;
   failureReason: string | null;
+  planError: ApiErrorEnvelope | null;
   durationSeconds: number;
   videoFile: string | null;
 }
@@ -172,12 +182,14 @@ async function main(): Promise<number> {
   let context: BrowserContext | null = null;
   let page: Page | null = null;
   let planEnvelope: PlanApiEnvelope | null = null;
+  let planError: ApiErrorEnvelope | null = null;
   let health: HealthResponse | null = null;
   let failureReason: string | null = null;
 
   // Read through an accessor because TS does not track assignments made
   // inside the page response callback when narrowing this outer variable.
   const capturedPlan = (): PlanApiEnvelope | null => planEnvelope;
+  const capturedPlanError = (): ApiErrorEnvelope | null => planError;
 
   const elapsedSeconds = () => (Date.now() - startedAt) / 1000;
   // Budget-aware hold: never let scripted pacing push the recording past the
@@ -207,7 +219,20 @@ async function main(): Promise<number> {
         void response
           .json()
           .then((body) => {
-            planEnvelope = body as PlanApiEnvelope;
+            if (response.ok()) {
+              planEnvelope = body as PlanApiEnvelope;
+            } else {
+              // The server's 4xx/5xx envelope carries sanitized per-URL
+              // failure reasons in error.details (no secrets or raw payloads).
+              planError = body as ApiErrorEnvelope;
+              const details = Array.isArray(planError.error.details)
+                ? ` — details: ${planError.error.details.join(' | ')}`
+                : '';
+              log(
+                'api-error',
+                `POST /api/plans ${response.status()} ${planError.error.code}${details}`,
+              );
+            }
           })
           .catch(() => {
             /* A parse failure surfaces later as a missing receipt. */
@@ -270,7 +295,11 @@ async function main(): Promise<number> {
 
     const errorAlert = page.getByRole('alert');
     if (await errorAlert.isVisible().catch(() => false)) {
-      failureReason = `Application error before the plan: ${(await errorAlert.innerText()).trim()}`;
+      const alertText = (await errorAlert.innerText()).trim();
+      const apiError = capturedPlanError();
+      failureReason = apiError
+        ? `${apiError.error.code}: ${apiError.error.message} (UI: ${alertText})`
+        : `Application error before the plan: ${alertText}`;
       return 1;
     }
 
@@ -440,6 +469,7 @@ async function main(): Promise<number> {
       observations,
       acceptancePassed,
       failureReason: null,
+      planError: capturedPlanError(),
       durationSeconds,
       videoFile,
     };
@@ -472,6 +502,7 @@ async function main(): Promise<number> {
         observations: null,
         acceptancePassed: false,
         failureReason,
+        planError: capturedPlanError(),
         durationSeconds: Math.round(elapsedSeconds()),
         videoFile: null,
       };
