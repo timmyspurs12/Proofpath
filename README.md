@@ -106,6 +106,7 @@ npm run test:e2e        # starts dev servers if needed; includes axe WCAG scans
 npm run screenshots     # captures from http://127.0.0.1:3000 by default
 
 npm run verify:live     # OPT-IN: makes genuine Nebius calls; requires a credential
+npm run record:demo:nigeria # OPT-IN: records the live Nigeria demo walkthrough as WebM + audit sidecar
 npm audit               # dependency advisory check
 ```
 
