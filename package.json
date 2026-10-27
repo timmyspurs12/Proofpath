@@ -18,6 +18,7 @@
     "screenshots": "tsx scripts/capture-screenshots.ts",
     "evaluate": "tsx scripts/evaluate.ts && prettier --write docs/EVALUATION.md docs/evaluation/cases.json public/evaluation.json",
     "verify:live": "tsx scripts/verify-live.ts",
+    "record:demo:nigeria": "tsx scripts/record-demo-nigeria.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"api/**/*.ts\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.{ts,mjs}\" \"docs/**/*.{md,json}\" \"*.{ts,json,html,md}\" \"public/*.json\" \".github/workflows/*.yml\""
   },

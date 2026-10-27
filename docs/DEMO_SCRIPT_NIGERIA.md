@@ -82,6 +82,20 @@
 
 **Narration:** “ProofPath: not just an answer, but a next step you can inspect. The code, tests, evaluation, and full evidence trail are open source under MIT.”
 
+## Automated recorder (optional helper)
+
+`scripts/record-demo-nigeria.ts` drives the walkthrough above against the deployed app and produces the recording plus a machine-readable audit packet. It is a convenience, not a substitute for the recording gate: every frame is still the real deployed application, and nothing is mocked.
+
+```bash
+npx playwright install chromium      # first time only
+npm run record:demo:nigeria
+```
+
+- Defaults to the production URL (`PROOFPATH_DEMO_URL` overrides it), headed Chromium at 1440 × 1000, and a 175-second hold budget (`DEMO_BUDGET_S`, `DEMO_HEADLESS=1`) that caps scripted pacing so holds alone cannot push the WebM past three minutes. Real generation time is recorded honestly — if an unusually slow run takes the total over 180 seconds, the sidecar warns and the footage must be trimmed with any time cut disclosed on screen.
+- It preflights `/api/health` and aborts if live inference is unconfigured; the genuine `chatcmpl-…` id, latency and token usage are captured from the real `POST /api/plans` response. Clarification questions are answered by the human at the keyboard — the script pauses for terminal Enter rather than inventing factual answers.
+- Outputs are written under gitignored `artifacts/demo-recordings/`: a `.webm` and a `.json` sidecar containing the runtime receipt and the four acceptance observations (fee question absent from unresolved, appointment step supported by an exact passage, 21-day timeline present, collection still unable to verify). Exit code `3` means the live call succeeded but an observation failed — record and diagnose honestly, never edit the output to force a pass.
+- This helper cannot run inside the restricted CI/sandbox network; run it on a machine with browser and public-internet access. It does not change application, provider, or deployment configuration.
+
 ## Required post-recording checks
 
 - Actual duration is **02:45 or less** and the uploaded YouTube video is public; insert its URL in the Devpost draft only after the upload succeeds.
