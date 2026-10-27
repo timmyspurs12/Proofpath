@@ -4,7 +4,7 @@
 **Track:** Best Apps and Agents  
 **Tagline:** Ordered action plans where every important step shows its evidence—and every gap stays visible.
 
-> Do not publish this draft as a compliant entry until the bracketed runtime, repository-ref, and video fields are replaced with verified facts. The public demo URL is verified only for the static/sample scope described below.
+> **Draft status: not submitted.** The video URL and submission-confirmation fields remain explicit placeholders. Runtime facts below are limited to two production runs that occurred **before the latest evidence-gap remediation was merged** (commit `c03f5e3a0f6b81a61bfa5c63a6fa0c7ef2f64f1a`). Those receipts establish that genuine live inference works in the deployed application; they do not establish that the post-remediation acceptance criteria pass. No Devpost submission has been made.
 
 ## Elevator pitch
 
@@ -32,7 +32,12 @@ Research and official citations: `docs/research/OFFICIAL_REQUIREMENTS.md` and `d
 The client uses React, TypeScript, Vite, and custom responsive CSS. A small Express server keeps Nebius/Tavily credentials off the browser, requests JSON Schema from Token Factory, validates output with Zod, retrieves bounded source text, and applies the evidence gate. Plans are stored only after an explicit save to browser localStorage; exports provide portability. The same Express app runs as a Vercel function or a single Node process.
 
 **Default model:** `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`  
-**Live verification:** `[INSERT ACTUAL MODEL RESPONSE ID AND DATE AFTER GENUINE RUN — CURRENTLY BLOCKED]`
+**Live verification — observed production runs (both pre-remediation):**
+
+- `chatcmpl-e74616bc-3bdf-47c2-bbb8-2dd9fa5be457` — genuine live Nebius Token Factory response in the deployed application; reported model latency **11.9 s**.
+- `chatcmpl-2aff50c9-9aa7-4db7-9f6b-311fe50e44fe` — genuine live response, reported model latency **7.2 s**, token usage 11,734 input / 2,096 output (13,830 total); the resulting plan had **11 steps, of which 9 were source-supported** after the evidence gate removed 7 invalid citations; retrieval used 7 direct sources and 1 Tavily discovery call.
+
+Both runs happened **before** the evidence-gap remediation (fee-question resolution, citation-fidelity prompt hardening, processing/collection split) was merged in commit `c03f5e3`. They evidence successful live inference and strict fail-closed citation behavior, not post-remediation acceptance. A fresh post-deploy live run confirming the remediated behavior is still pending and must not be claimed in advance.
 
 ## What makes it different
 
@@ -48,9 +53,16 @@ The model cannot grant its own claims a supported label. Code checks each citati
 
 ## Accomplishments
 
-The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. The redesigned interface pairs an editorial landing page with a quiet plan-and-evidence workspace, visible prerequisites, accessible confirmation dialogs, and mobile navigation. In the documented local run, **41 unit/API/component tests, 12 Chromium E2E tests, and 12 evaluation cases** passed. Tested axe scans with WCAG 2.2 AA tags returned no violations, and all four main routes passed overflow checks at six viewport widths.
+The implementation includes the complete local workflow, deterministic evidence gate, labelled sample, persistent local library, exports, source-recheck endpoint, deployment configuration, reproducible evaluation, and real browser tests. The redesigned interface pairs an editorial landing page with a quiet plan-and-evidence workspace, visible prerequisites, accessible confirmation dialogs, and mobile navigation.
 
-**Live Nebius/Tavily performance is not claimed without receipts.**
+**Current deterministic and CI evidence at merged commit `c03f5e3`:**
+
+- **254 Vitest tests across 22 files**, including a frozen regression fixture built from the observed live run: fee-question resolution, appointment-citation fidelity, and the processing-timeline/collection split.
+- **25/25 deterministic evaluation cases** in the reproducible evaluation harness.
+- **14/14 Playwright browser tests**, including axe scans with WCAG 2.2 A/AA tags returning no violations, plus horizontal-overflow checks at six viewport widths.
+- Clean TypeScript typecheck, successful production build, and a passing serverless bundle smoke test (HTTP 200).
+
+These are CI and deterministic fixture results, **not live-model accuracy measurements**: they prove the evidence gate's behavior on frozen inputs, while live model output is only established by genuine keyed runs. No `verify:live` post-remediation acceptance run is claimed. Individual live inference receipts are listed under "How we built it"; no throughput, uptime, latency-SLA, or model-accuracy benchmark is claimed from them.
 
 ## What we learned
 
@@ -58,7 +70,7 @@ Structured output is necessary but not sufficient: a perfectly valid JSON object
 
 ## What’s next
 
-- Complete genuine deployed Nebius verification and record the public demo.
+- Run the deployed Nigeria domestic-renewal case again **after** the `c03f5e3` remediation to confirm the fee question is removed, the appointment step carries valid exact-passage citations, and collection remains unresolved without official evidence; then record the public demo video.
 - Expand representative, jurisdiction-specific live evaluation with human semantic review.
 - Add accessible PDF extraction only if it can preserve passage provenance.
 - Improve change-aware re-planning without silently rewriting user edits.
@@ -70,11 +82,11 @@ React · TypeScript · Express · Vite · Zod · Cheerio · NVIDIA Nemotron 3 Na
 
 ## Submission links
 
-- **Working demo:** `https://proofpath-woad.vercel.app` — public static/sample deployment; genuine live workflow remains blocked.
-- **Source code:** `https://github.com/timmyspurs12/Proofpath` — `[INSERT EXACT SUBMISSION REF/COMMIT]`
-- **Public YouTube video (<3:00):** `[INSERT ACTUAL PUBLIC URL — NOT RECORDED]`
-- **Runtime receipt:** `[INSERT REAL NEBIUS RESPONSE ID — BLOCKED]`
-- **Tavily bonus:** Do not claim unless a genuine runtime call is observed; none is claimed in this draft.
+- **Working demo:** `https://proofpath-woad.vercel.app` — Vercel production deployment of merged commit `c03f5e3a0f6b81a61bfa5c63a6fa0c7ef2f64f1a`. Genuine live Nebius inference was observed here in the two pre-remediation runs listed above; the application also contains a conspicuously labelled static sample that never presents itself as live inference. Post-remediation live acceptance remains pending.
+- **Source code:** `https://github.com/timmyspurs12/Proofpath` — current merged `main` commit at drafting time: `c03f5e3a0f6b81a61bfa5c63a6fa0c7ef2f64f1a` (MIT licensed).
+- **Public YouTube video (<3:00):** `[INSERT ACTUAL PUBLIC URL — NO VIDEO HAS BEEN RECORDED OR UPLOADED YET]`
+- **Runtime receipts (observed production runs, both pre-remediation):** `chatcmpl-e74616bc-3bdf-47c2-bbb8-2dd9fa5be457` (11.9 s) and `chatcmpl-2aff50c9-9aa7-4db7-9f6b-311fe50e44fe` (7.2 s; 11 steps, 9 source-supported). These identify genuine provider responses; they are not post-remediation acceptance evidence.
+- **Tavily:** the later observed run included one genuine Tavily discovery call (reported Tavily request id `89f6af23-3947-45de-a535-8aac17427b3d`) alongside seven direct source fetches; Tavily is used for URL discovery only, and retrieved publisher passages—not generated search answers—are the evidence. No sponsor bonus or award is claimed in this draft.
 
 ## Sponsor/tool feedback draft
 

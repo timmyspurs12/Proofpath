@@ -1,8 +1,10 @@
 # ProofPath demo — 2:45 script and storyboard
 
-**Target duration: 165 seconds. Track: Best Apps and Agents.**
+**Target duration: 165 seconds. Track: Best Apps and Agents. Scenario: UK adult passport renewal with GOV.UK sources.**
 
-> **Recording gate:** shots marked LIVE must show a genuine Nebius response from the deployed app. Do not substitute the static sample, a mock response, or a rehearsed screenshot and describe it as live. Until credentials and a real deployed workflow are verified, this is a script—not evidence that a compliant video exists.
+> **Scenario identity:** this is the UK script. A separate, clearly identified Nigeria domestic-renewal script exists in [`DEMO_SCRIPT_NIGERIA.md`](DEMO_SCRIPT_NIGERIA.md). Pick one scenario per recording and never present one scenario's sources or receipts as the other's. Neither file is evidence that a video has been recorded.
+
+> **Recording gate:** shots marked LIVE must show a genuine Nebius response from the deployed app. Do not substitute the static sample, a mock response, or a rehearsed screenshot and describe it as live. The two production receipts observed so far predate the evidence-gap remediation merged in commit `c03f5e3`; a recording that claims remediated behavior must use a fresh post-deploy run. Until such a run is recorded, this is a script—not evidence that a compliant video exists.
 
 ## Production setup
 

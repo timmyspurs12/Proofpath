@@ -6,9 +6,16 @@ ProofPath turns a concrete administrative task and official source passages into
 
 ![ProofPath sample action plan](docs/screenshots/02-plan-desktop.png)
 
-> **Current verification status:** the application builds and its deterministic/browser tests pass in this workspace. No genuine Nebius or Tavily call has been observed because credentials are unavailable. The included sample is explicitly static and does **not** establish hackathon runtime compliance. Do not describe this repository as submission-ready until `npm run verify:live` and a real deployed workflow succeed.
+> **Current verification status:**
+>
+> - **Genuine live Nebius inference has been observed in the deployed application** at <https://proofpath-woad.vercel.app>. Two production responses are recorded: `chatcmpl-e74616bc-3bdf-47c2-bbb8-2dd9fa5be457` (reported model latency 11.9 s) and `chatcmpl-2aff50c9-9aa7-4db7-9f6b-311fe50e44fe` (7.2 s; 11 plan steps, 9 source-supported).
+> - **Both recorded runs predate the latest evidence-gap remediation** merged in commit `c03f5e3a0f6b81a61bfa5c63a6fa0c7ef2f64f1a` (fee-question resolution, citation-fidelity prompt hardening, processing/collection split). They establish that live inference works, not that the remediated behavior passes acceptance.
+> - **A post-merge live run is still required** to verify that (1) the domestic fee question is removed when official passages answer it, (2) the biometric appointment step carries valid exact-passage citations, and (3) passport collection remains explicitly unresolved without official supporting evidence.
+> - Runtime receipts and deterministic tests are **different kinds of evidence**: a receipt proves a genuine provider response occurred, while Vitest, Playwright, and evaluation-harness results prove deterministic gate behavior on frozen fixtures, not live-model accuracy.
+> - The project must **not** be described as having passed the post-remediation live acceptance test until a genuine keyed run (the evidence-quality checks in `npm run verify:live`, or an equivalent deployed run) actually succeeds.
+> - The `GET /api/health` endpoint reports configuration presence only; a healthy or "configured" endpoint is not, by itself, proof of successful inference, and its `liveInferenceVerified` field is a hardcoded placeholder. The included static sample is explicitly labelled and does not establish runtime compliance.
 
-**Public static/sample demo:** <https://proofpath-woad.vercel.app>. See [deployment evidence](docs/DEPLOYMENT.md) for the exact deployed commit and hosted checks.
+**Public deployment (live application plus a labelled static sample):** <https://proofpath-woad.vercel.app>. See [deployment evidence](docs/DEPLOYMENT.md) for the exact deployed commit and hosted checks.
 
 ## Why this is not another chatbot
 
@@ -144,7 +151,7 @@ See [architecture and trust boundaries](docs/ARCHITECTURE.md), [deployment](docs
 
 ## Measured quality evidence
 
-At the documented local run: **41/41 unit/API/component tests**, **12/12 real Chromium E2E tests**, and **12/12 evaluation cases** passed; the production build succeeded and `npm audit` reported zero vulnerabilities. Axe scans with WCAG 2.2 AA tags returned no violations on the tested desktop/mobile routes and confirmation dialog. Home, Plan, About, and Saved passed horizontal-overflow checks at **1440, 1280, 1024, 768, 390, and 320 px**. These statements are scoped to [the final test report](docs/TEST_REPORT.md), not a promise about every environment or complete WCAG conformance.
+At the merged commit `c03f5e3`: **254/254 Vitest tests across 22 files**, **14/14 real Chromium Playwright tests**, and **25/25 deterministic evaluation cases** pass in CI; the TypeScript typecheck, production build, and serverless bundle smoke test also succeed. Axe scans with WCAG 2.2 A/AA tags returned no violations on the tested desktop/mobile routes and confirmation dialog. Home, Plan, About, and Saved passed horizontal-overflow checks at **1440, 1280, 1024, 768, 390, and 320 px**. These are CI and deterministic fixture results, not live-model accuracy measurements, and are scoped to [the test report](docs/TEST_REPORT.md), not a promise about every environment or complete WCAG conformance.
 
 The [evaluation report](docs/EVALUATION.md) defines citation coverage, unsupported-claim rejection, conflicts, missing information, workflow completion, provider failures, and fixture latency. It is intentionally adversarial and small; it is not a Nemotron accuracy benchmark.
 
@@ -155,7 +162,7 @@ The [evaluation report](docs/EVALUATION.md) defines citation coverage, unsupport
 - [Selection ADR](docs/decisions/0001-select-proofpath.md)
 - [Evaluation methods/results](docs/EVALUATION.md) · [case ledger](docs/evaluation/cases.json)
 - [Test report](docs/TEST_REPORT.md) · [compliance matrix](docs/COMPLIANCE.md)
-- [2:45 demo script/storyboard](docs/DEMO_SCRIPT.md) · [screenshots](docs/screenshots/README.md)
+- [2:45 demo script/storyboard — UK scenario](docs/DEMO_SCRIPT.md) · [Nigeria domestic-renewal scenario](docs/DEMO_SCRIPT_NIGERIA.md) · [screenshots](docs/screenshots/README.md)
 - [Devpost draft](docs/DEVPOST_DRAFT.md) · [final A–J handoff](docs/FINAL_REPORT.md)
 
 ## Repository note and license
