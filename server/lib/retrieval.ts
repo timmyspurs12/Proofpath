@@ -14,6 +14,13 @@ import type { TavilyClient } from './tavily';
 const MAX_SOURCE_CHARACTERS = 30_000;
 const MAX_RESPONSE_BYTES = 750_000;
 const MAX_SOURCES = 6;
+// Total fetch budget (connect + headers + body) for one source. Official
+// document origins can be slow from serverless regions: measured Nigeria
+// Immigration Service responses took 6.9s-24.1s for 200 KB-720 KB assets in
+// October 2026, so an 8-second budget discarded every source on those runs.
+// The initial batch fetches in parallel, so wall-clock retrieval stays bounded
+// by the slowest single source rather than the sum of timeouts.
+export const SOURCE_FETCH_TIMEOUT_MS = 30_000;
 
 export interface RetrievedSource {
   source: Source;
@@ -253,7 +260,7 @@ export async function fetchSource(
 ): Promise<RetrievedSource> {
   let url = await assertPublicUrl(value);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
+  const timer = setTimeout(() => controller.abort(), SOURCE_FETCH_TIMEOUT_MS);
   try {
     let response: Response | null = null;
     for (let redirect = 0; redirect < 4; redirect += 1) {

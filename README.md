@@ -146,7 +146,7 @@ See [architecture and trust boundaries](docs/ARCHITECTURE.md), [deployment](docs
 - Do not submit identity numbers, passwords, payment details, confidential notices, or medical records.
 - Live task details and uploaded text are sent to Nebius. Tavily receives discovery queries only when configured. Saved plans stay in the browser unless exported.
 - Token Factory data-retention behavior is governed by the operator’s account settings; `store: false` is not presented as a Zero Data Retention guarantee.
-- Source retrieval enforces HTTP(S)-only URLs, public-address checks on every redirect, an 8-second timeout, 750 KB response cap, supported content types, six-source/30 KB-per-source limits, and bounded extraction. DNS checks reduce SSRF risk but are not a guarantee against every DNS-rebinding technique.
+- Source retrieval enforces HTTP(S)-only URLs, public-address checks on every redirect, a 30-second per-source timeout, 750 KB response cap, supported content types, six-source/30 KB-per-source limits, and bounded extraction. DNS checks reduce SSRF risk but are not a guarantee against every DNS-rebinding technique.
 - Provider credentials never enter browser bundles or logs. Logs record operational metadata, not task/source content.
 - Browser saves are not encrypted. Export important plans and avoid relying on shared-device storage.
 

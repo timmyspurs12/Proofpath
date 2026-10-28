@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  SOURCE_FETCH_TIMEOUT_MS,
   authorityForHostname,
   fetchSource,
   hashText,
@@ -306,5 +307,69 @@ describe('candidate ranking and targeted discovery', () => {
 
     expect(queries[0]).toBe('register a business official');
     expect(queries[0]).not.toMatch(/\s{2,}/);
+  });
+});
+
+// Regression coverage for slow official origins: measured NIS document
+// responses took up to 24.1s in October 2026, which the previous 8-second
+// budget could never accommodate. Fake timers keep the suite instant.
+describe('source fetch timeout budget', () => {
+  const slowHtml =
+    '<html><body><main><h1>Slow official document</h1><p>This passage is deliberately long enough to clear the forty-character readability minimum after extraction completes.</p></main></body></html>';
+
+  // Mimics a real slow server: resolves after a mocked delay, and rejects
+  // with an AbortError when the caller's AbortController fires first.
+  const slowFetch = (delayMs: number | null) =>
+    vi.fn().mockImplementation(
+      (_input: unknown, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('The operation was aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+          if (delayMs !== null) {
+            setTimeout(
+              () =>
+                resolve(
+                  new Response(slowHtml, {
+                    status: 200,
+                    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+                  }),
+                ),
+              delayMs,
+            );
+          }
+        }),
+    );
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('exports a thirty-second budget so slow government pages stay readable', () => {
+    expect(SOURCE_FETCH_TIMEOUT_MS).toBe(30_000);
+  });
+
+  it('accepts an official origin that responds in fifteen seconds', async () => {
+    globalThis.fetch = slowFetch(15_000);
+    const resultPromise = fetchSource('https://8.8.8.8/slow-official-page', 'S1');
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await resultPromise;
+    expect(result.text).toContain('Slow official document');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed as SOURCE_TIMEOUT when the origin never responds in budget', async () => {
+    globalThis.fetch = slowFetch(null);
+    const rejection = expect(
+      fetchSource('https://8.8.8.8/hung-official-page', 'S1'),
+    ).rejects.toMatchObject({ code: 'SOURCE_TIMEOUT', status: 504 });
+    await vi.advanceTimersByTimeAsync(SOURCE_FETCH_TIMEOUT_MS + 1_000);
+    await rejection;
   });
 });
