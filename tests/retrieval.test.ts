@@ -463,4 +463,28 @@ describe('direct-source bounded retry', () => {
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
+
+  it('gives every direct URL its own retry instead of sharing one batch-wide budget', async () => {
+    const attempts = new Map<string, number>();
+    globalThis.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const target = String(input);
+      const seen = (attempts.get(target) ?? 0) + 1;
+      attempts.set(target, seen);
+      if (seen === 1) return Promise.reject(aborted());
+      return Promise.resolve(
+        new Response(readableHtml, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+      );
+    });
+    const result = await retrieveSources({
+      ...baseOptions,
+      directUrls: ['https://8.8.8.8/first-official-page', 'https://9.9.9.9/second-official-page'],
+    });
+    // Two attempts per URL: the first failure on each origin still retries.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    expect(result.sources).toHaveLength(2);
+    expect(result.warnings.filter((warning) => warning.includes('bounded retry'))).toHaveLength(2);
+  });
 });
