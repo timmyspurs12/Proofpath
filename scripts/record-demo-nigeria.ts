@@ -53,8 +53,34 @@ const OFFICIAL_SOURCES = [
   'https://immigration.gov.ng/wp-content/uploads/2026/04/SERVICE-LEVEL-AGREEMENT-2026_.pdf',
 ].join('\n');
 
-const PLAN_TIMEOUT_MS = 95_000;
+// The browser client aborts plan requests at 60s and a Vercel function has
+// its own duration cap, so production failures surface as an alert around
+// that mark. The larger budget mainly serves local-dev targets
+// (PROOFPATH_DEMO_URL=http://127.0.0.1:5173), which have no function cap.
+const PLAN_TIMEOUT_MS = 150_000;
 const TYPING_DELAY_MS = 18;
+
+type PlanOutcome = 'clarify' | 'plan' | 'alert';
+
+// Waits for the first visible terminal state instead of polling for a plan
+// alone: late error alerts (client-side 60s abort, a 422/504 response, or a
+// slow retrieval failure) must be reported with their real message, not a
+// generic locator timeout ninety-five seconds later.
+async function waitForPlanOutcome(page: Page, timeoutMs: number): Promise<PlanOutcome> {
+  const clarifyCard = page.locator('.clarify-card');
+  const firstStep = page.locator('.action-step').first();
+  // Only error-tone Alerts use role="alert"; info banners use role="status".
+  const errorAlert = page.getByRole('alert');
+  await Promise.race([
+    clarifyCard.waitFor({ state: 'visible', timeout: timeoutMs }),
+    firstStep.waitFor({ state: 'visible', timeout: timeoutMs }),
+    errorAlert.waitFor({ state: 'visible', timeout: timeoutMs }),
+  ]);
+  if (await errorAlert.isVisible().catch(() => false)) return 'alert';
+  if (await clarifyCard.isVisible().catch(() => false)) return 'clarify';
+  if (await firstStep.isVisible().catch(() => false)) return 'plan';
+  throw new Error('No clarify card, plan step, or error alert became visible within the budget.');
+}
 
 interface HealthResponse {
   status: string;
@@ -269,12 +295,23 @@ async function main(): Promise<number> {
     await hold(8, 'completed task form with the four official NIS sources');
 
     await page.getByRole('button', { name: 'Find my next steps' }).click();
-    log('intake', 'Task submitted; waiting for intake clarification or the plan.');
+    log('intake', 'Task submitted; waiting for intake clarification, the plan, or an error.');
 
-    const clarifyOrPlan = page.locator('.clarify-card, .action-step').first();
-    await clarifyOrPlan.waitFor({ timeout: PLAN_TIMEOUT_MS });
+    const describeAlert = async (currentPage: Page): Promise<string> => {
+      const alertText = (await currentPage.getByRole('alert').innerText()).trim();
+      const apiError = capturedPlanError();
+      return apiError
+        ? `${apiError.error.code}: ${apiError.error.message} (UI: ${alertText})`
+        : `Application error before the plan: ${alertText}`;
+    };
 
-    if (await page.locator('.clarify-card').isVisible()) {
+    let outcome = await waitForPlanOutcome(page, PLAN_TIMEOUT_MS);
+    if (outcome === 'alert') {
+      failureReason = await describeAlert(page);
+      return 1;
+    }
+
+    if (outcome === 'clarify') {
       log(
         'clarify',
         'The deployment asked clarification questions. Answer every required field in the browser window.',
@@ -290,20 +327,20 @@ async function main(): Promise<number> {
       );
       readline.close();
       await page.getByRole('button', { name: 'Retrieve sources & build plan' }).click();
-      log('plan', 'Answers submitted; waiting for the live plan.');
+      log('plan', 'Answers submitted; waiting for the live plan or an error.');
+
+      outcome = await waitForPlanOutcome(page, PLAN_TIMEOUT_MS);
+      if (outcome === 'alert') {
+        failureReason = await describeAlert(page);
+        return 1;
+      }
+      if (outcome === 'clarify') {
+        failureReason =
+          'The clarification card remained after submission; the plan request did not start. Check the browser for validation messages.';
+        return 1;
+      }
     }
 
-    const errorAlert = page.getByRole('alert');
-    if (await errorAlert.isVisible().catch(() => false)) {
-      const alertText = (await errorAlert.innerText()).trim();
-      const apiError = capturedPlanError();
-      failureReason = apiError
-        ? `${apiError.error.code}: ${apiError.error.message} (UI: ${alertText})`
-        : `Application error before the plan: ${alertText}`;
-      return 1;
-    }
-
-    await page.locator('.action-step').first().waitFor({ timeout: PLAN_TIMEOUT_MS });
     await page.locator('.runtime-receipt-card').waitFor({ timeout: 15_000 });
     log('plan', 'Live plan rendered.');
 
