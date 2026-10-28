@@ -273,9 +273,10 @@ describe('candidate ranking and targeted discovery', () => {
     expect(result.sources).toHaveLength(6);
     expect(result.sources.some((entry) => entry.source.url?.includes('broken'))).toBe(false);
     expect(result.warnings.some((warning) => warning.includes('8.8.8.8'))).toBe(true);
-    // Seven fetch attempts: six in the initial batch plus one backfill.
-    expect(fetchMock).toHaveBeenCalledTimes(7);
-    expect(result.directFetches).toBe(7);
+    // Eight fetch attempts: six in the initial batch (the direct 500 gets
+    // one bounded retry), plus one queue backfill for the failed direct slot.
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    expect(result.directFetches).toBe(8);
   });
 
   it('scopes discovery queries without a jurisdiction suffix when none was supplied', async () => {
@@ -371,5 +372,95 @@ describe('source fetch timeout budget', () => {
     ).rejects.toMatchObject({ code: 'SOURCE_TIMEOUT', status: 504 });
     await vi.advanceTimersByTimeAsync(SOURCE_FETCH_TIMEOUT_MS + 1_000);
     await rejection;
+  });
+});
+
+// Regression coverage for transient failures on user-supplied direct URLs:
+// the same official origin was observed failing with SOURCE_FETCH_FAILED on
+// one attempt and succeeding on the next within the same session.
+describe('direct-source bounded retry', () => {
+  const readableHtml =
+    '<html><body><main><h1>Official guidance</h1><p>This passage contains enough words to clear the forty-character readability minimum for source extraction.</p></main></body></html>';
+  const aborted = () => {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+  };
+  const baseOptions = {
+    directUrls: ['https://8.8.8.8/official-renewal-page'],
+    searchQueries: [],
+    goal: 'Renew an official document',
+    jurisdiction: 'Nigeria',
+    document: null,
+    tavily: { configured: false, discover: vi.fn() } as unknown as TavilyClient,
+  };
+
+  it('retries once after an aborted connection and then retrieves the source', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(aborted())
+      .mockResolvedValueOnce(
+        new Response(readableHtml, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+      );
+    const result = await retrieveSources(baseOptions);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(result.sources).toHaveLength(1);
+    expect(result.warnings.some((warning) => warning.includes('bounded retry'))).toBe(true);
+  });
+
+  it('retries once after a 503 response and then retrieves the source', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(readableHtml, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+      );
+    const result = await retrieveSources(baseOptions);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(result.sources).toHaveLength(1);
+  });
+
+  it('does not retry a content-level failure such as an empty source', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('short', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      }),
+    );
+    await expect(retrieveSources(baseOptions)).rejects.toMatchObject({
+      code: 'NO_USABLE_SOURCES',
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not apply the direct retry path to Tavily-discovered candidates', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('fault', { status: 500 }));
+    const tavily = {
+      configured: true,
+      discover: vi.fn(async () => ({
+        urls: ['https://9.9.9.9/discovered-page'],
+        requestIds: ['req-retry-scope'],
+        calls: 1,
+      })),
+    } as unknown as TavilyClient;
+    await expect(retrieveSources({ ...baseOptions, directUrls: [], tavily })).rejects.toMatchObject(
+      { code: 'NO_USABLE_SOURCES' },
+    );
+    // One fetch attempt only: no direct retry, and the backfill queue is empty.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the single bounded retry also fails', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(aborted());
+    await expect(retrieveSources(baseOptions)).rejects.toMatchObject({
+      code: 'NO_USABLE_SOURCES',
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });

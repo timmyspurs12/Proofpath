@@ -21,6 +21,20 @@ const MAX_SOURCES = 6;
 // The initial batch fetches in parallel, so wall-clock retrieval stays bounded
 // by the slowest single source rather than the sum of timeouts.
 export const SOURCE_FETCH_TIMEOUT_MS = 30_000;
+// One bounded, batch-wide retry for transient failures on user-supplied
+// direct sources: measured runs showed the same official URL failing with
+// SOURCE_FETCH_FAILED on one attempt and succeeding on the next. Tavily-
+// discovered candidates keep their existing queue-backfill path instead. The
+// retry uses a shorter budget so worst-case parallel retrieval
+// (30s + backoff + 15s) stays inside the serverless function cap alongside
+// the model call.
+export const DIRECT_SOURCE_MAX_RETRIES = 1;
+export const DIRECT_SOURCE_RETRY_TIMEOUT_MS = 15_000;
+const DIRECT_SOURCE_RETRY_BACKOFF_MS = 500;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface RetrievedSource {
   source: Source;
@@ -257,10 +271,11 @@ export async function fetchSource(
   value: string,
   id: string,
   retrieval: Source['retrieval'] = 'direct',
+  timeoutMs: number = SOURCE_FETCH_TIMEOUT_MS,
 ): Promise<RetrievedSource> {
   let url = await assertPublicUrl(value);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SOURCE_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     let response: Response | null = null;
     for (let redirect = 0; redirect < 4; redirect += 1) {
@@ -658,12 +673,39 @@ export async function retrieveSources(options: RetrieveOptions) {
     ledger.excluded.push({ host, reason });
   };
 
+  // Bounded retry for user-supplied direct sources only. A single transient
+  // transport failure (timeout/reset/5xx) must not discard an official page
+  // for the whole run; content-level failures (empty/unsupported/oversized)
+  // are non-retryable and surface immediately through allSettled below.
+  let directRetryAttempts = 0;
+  const fetchWithDirectRetry = async (
+    candidate: RankedCandidate,
+    id: string,
+  ): Promise<RetrievedSource> => {
+    try {
+      return await fetchSource(candidate.url, id, candidate.discovery);
+    } catch (error) {
+      const retryable =
+        candidate.discovery === 'direct' &&
+        error instanceof AppError &&
+        error.retryable &&
+        directRetryAttempts < DIRECT_SOURCE_MAX_RETRIES;
+      if (!retryable) throw error;
+      directRetryAttempts += 1;
+      warnings.push(
+        `${hostOf(candidate.url)}: transient ${error.code}; one bounded retry after ${DIRECT_SOURCE_RETRY_BACKOFF_MS}ms backoff.`,
+      );
+      await wait(DIRECT_SOURCE_RETRY_BACKOFF_MS);
+      return fetchSource(candidate.url, id, candidate.discovery, DIRECT_SOURCE_RETRY_TIMEOUT_MS);
+    }
+  };
+
   const results = await Promise.allSettled(
     selected.map((candidate, index) =>
-      fetchSource(candidate.url, `S${sources.length + index + 1}`, candidate.discovery),
+      fetchWithDirectRetry(candidate, `S${sources.length + index + 1}`),
     ),
   );
-  ledger.fetched = selected.length;
+  ledger.fetched = selected.length + directRetryAttempts;
   let failureCount = 0;
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
@@ -732,7 +774,7 @@ export async function retrieveSources(options: RetrieveOptions) {
       'No official-domain source was retrieved; secondary publisher guidance cannot override official requirements. Add an official source URL to establish supported requirements.',
     );
   }
-  const directFetches = selected.length + backfills;
+  const directFetches = selected.length + backfills + directRetryAttempts;
   logEvent('source_retrieval', {
     sources: sources.length,
     direct_fetches: directFetches,
