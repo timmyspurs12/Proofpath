@@ -21,13 +21,13 @@ const MAX_SOURCES = 6;
 // The initial batch fetches in parallel, so wall-clock retrieval stays bounded
 // by the slowest single source rather than the sum of timeouts.
 export const SOURCE_FETCH_TIMEOUT_MS = 30_000;
-// One bounded, batch-wide retry for transient failures on user-supplied
-// direct sources: measured runs showed the same official URL failing with
+// One bounded per-URL retry for transient failures on user-supplied direct
+// sources: measured runs showed the same official URL failing with
 // SOURCE_FETCH_FAILED on one attempt and succeeding on the next. Tavily-
 // discovered candidates keep their existing queue-backfill path instead. The
-// retry uses a shorter budget so worst-case parallel retrieval
-// (30s + backoff + 15s) stays inside the serverless function cap alongside
-// the model call.
+// retry uses a shorter budget; retries run in parallel with the batch, so
+// worst-case retrieval (30s + backoff + 15s) stays inside the serverless
+// function cap alongside the model call regardless of how many URLs retry.
 export const DIRECT_SOURCE_MAX_RETRIES = 1;
 export const DIRECT_SOURCE_RETRY_TIMEOUT_MS = 15_000;
 const DIRECT_SOURCE_RETRY_BACKOFF_MS = 500;
@@ -673,15 +673,18 @@ export async function retrieveSources(options: RetrieveOptions) {
     ledger.excluded.push({ host, reason });
   };
 
-  // Bounded retry for user-supplied direct sources only. A single transient
-  // transport failure (timeout/reset/5xx) must not discard an official page
-  // for the whole run; content-level failures (empty/unsupported/oversized)
-  // are non-retryable and surface immediately through allSettled below.
+  // Bounded retry for user-supplied direct sources only. Each direct URL gets
+  // its own retry budget: the batch fetches in parallel, so per-URL retries
+  // add no extra wall-clock time beyond the existing worst case, and one
+  // flaky origin can no longer consume the only retry before a slow document
+  // (such as the multi-second SLA PDF) needs its own. Content-level failures
+  // (empty/unsupported/oversized) are non-retryable and surface immediately.
   let directRetryAttempts = 0;
   const fetchWithDirectRetry = async (
     candidate: RankedCandidate,
     id: string,
   ): Promise<RetrievedSource> => {
+    let attempts = 0;
     try {
       return await fetchSource(candidate.url, id, candidate.discovery);
     } catch (error) {
@@ -689,8 +692,9 @@ export async function retrieveSources(options: RetrieveOptions) {
         candidate.discovery === 'direct' &&
         error instanceof AppError &&
         error.retryable &&
-        directRetryAttempts < DIRECT_SOURCE_MAX_RETRIES;
+        attempts < DIRECT_SOURCE_MAX_RETRIES;
       if (!retryable) throw error;
+      attempts += 1;
       directRetryAttempts += 1;
       warnings.push(
         `${hostOf(candidate.url)}: transient ${error.code}; one bounded retry after ${DIRECT_SOURCE_RETRY_BACKOFF_MS}ms backoff.`,
