@@ -388,7 +388,10 @@ await runCase(
       });
       assert.equal(result.sources.length, 6);
       assert.ok(result.warnings.some((warning) => warning.includes('8.8.8.8')));
-      assert.equal(result.directFetches, 7);
+      // The direct 500 now consumes its one bounded retry before the failed
+      // slot is backfilled from the Tavily queue: six batch attempts plus the
+      // retry plus one backfill.
+      assert.equal(result.directFetches, 8);
     } finally {
       globalThis.fetch = originalFetch;
     }
